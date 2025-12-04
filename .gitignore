@@ -1,0 +1,23 @@
+# Build artifacts
+*.tar.gz
+.build-temp/
+
+# Container build context
+.buildx-cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Experiment outputs (add to experiment-specific .gitignore if needed)
+*.csv
+*.log
+results/
+output/

@@ -1,0 +1,233 @@
+name: Cleanup Untagged Container Images
+
+on:
+  schedule:
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run - only show what would be deleted without actually deleting'
+        required: false
+        default: true
+        type: boolean
+      age_threshold_days:
+        description: 'Delete untagged images older than this many days'
+        required: false
+        default: '7'
+        type: string
+      package_filter:
+        description: 'Only clean packages matching this pattern (regex)'
+        required: false
+        default: '.*'
+        type: string
+      max_deletions_per_package:
+        description: 'Maximum number of untagged images to delete per package (safety limit)'
+        required: false
+        default: '50'
+        type: string
+
+env:
+  # List of container packages to clean up
+  CONTAINER_PACKAGES: |
+    sst-core
+    sst-full
+    sst-dev
+    tcl-test-experiment
+    phold-example
+    hello-world-mpi
+    example-experiment
+
+jobs:
+  cleanup-untagged-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Setup inputs with defaults
+        id: inputs
+        run: |
+          # Set defaults for scheduled runs
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "dry_run=false" >> $GITHUB_OUTPUT
+            echo "age_threshold_days=7" >> $GITHUB_OUTPUT
+            echo "package_filter=.*" >> $GITHUB_OUTPUT
+            echo "max_deletions_per_package=50" >> $GITHUB_OUTPUT
+          else
+            echo "dry_run=${{ inputs.dry_run }}" >> $GITHUB_OUTPUT
+            echo "age_threshold_days=${{ inputs.age_threshold_days }}" >> $GITHUB_OUTPUT
+            echo "package_filter=${{ inputs.package_filter }}" >> $GITHUB_OUTPUT
+            echo "max_deletions_per_package=${{ inputs.max_deletions_per_package }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install jq for JSON processing
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cleanup untagged container images
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DRY_RUN="${{ steps.inputs.outputs.dry_run }}"
+          AGE_THRESHOLD_DAYS="${{ steps.inputs.outputs.age_threshold_days }}"
+          PACKAGE_FILTER="${{ steps.inputs.outputs.package_filter }}"
+          MAX_DELETIONS="${{ steps.inputs.outputs.max_deletions_per_package }}"
+
+          echo "=== Container Image Cleanup Configuration ==="
+          echo "Dry Run: $DRY_RUN"
+          echo "Age Threshold: $AGE_THRESHOLD_DAYS days"
+          echo "Package Filter: $PACKAGE_FILTER"
+          echo "Max Deletions per Package: $MAX_DELETIONS"
+          echo "=============================================="
+          echo ""
+
+          # Calculate cutoff date (images older than this will be deleted)
+          CUTOFF_DATE=$(date -d "$AGE_THRESHOLD_DAYS days ago" -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Will delete untagged images older than: $CUTOFF_DATE"
+          echo ""
+
+          TOTAL_DELETED=0
+          TOTAL_ERRORS=0
+
+          # Process each package
+          echo "$CONTAINER_PACKAGES" | while IFS= read -r package_name; do
+            # Skip empty lines
+            [ -z "$package_name" ] && continue
+
+            # Apply package filter
+            if ! echo "$package_name" | grep -qE "$PACKAGE_FILTER"; then
+              echo "[SKIP] Package $package_name doesn't match filter"
+              continue
+            fi
+
+            echo "=== Processing package: $package_name ==="
+
+            # Check if package exists
+            if ! gh api "/user/packages/container/$package_name" >/dev/null 2>&1; then
+              echo "[INFO] Package $package_name does not exist, skipping"
+              continue
+            fi
+
+            # Get all untagged versions older than threshold
+            echo "Fetching untagged versions for $package_name..."
+            VERSIONS_TO_DELETE=$(gh api "/user/packages/container/$package_name/versions" --paginate | \
+              jq -r --arg cutoff "$CUTOFF_DATE" \
+                '.[] |
+                select(.metadata.container.tags | length == 0) |
+                select(.created_at < $cutoff) |
+                "\(.id)|\(.created_at)"' | \
+              head -n "$MAX_DELETIONS")
+
+            if [ -z "$VERSIONS_TO_DELETE" ]; then
+              echo "[INFO] No untagged images found for $package_name (older than $AGE_THRESHOLD_DAYS days)"
+              continue
+            fi
+
+            VERSION_COUNT=$(echo "$VERSIONS_TO_DELETE" | wc -l)
+            echo "[INFO] Found $VERSION_COUNT untagged versions to delete for $package_name"
+
+            PACKAGE_DELETED=0
+            PACKAGE_ERRORS=0
+
+            # Process each version
+            echo "$VERSIONS_TO_DELETE" | while IFS='|' read -r version_id created_at; do
+              [ -z "$version_id" ] && continue
+
+              echo "  Processing version $version_id (created: $created_at)"
+
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "  [DRY RUN] Would delete untagged version $version_id"
+              else
+                echo "  [DELETE] Deleting untagged version $version_id..."
+                if gh api --method DELETE "/user/packages/container/$package_name/versions/$version_id" >/dev/null 2>&1; then
+                  echo "  [SUCCESS] Deleted version $version_id"
+                  PACKAGE_DELETED=$((PACKAGE_DELETED + 1))
+                else
+                  echo "  [ERROR] Failed to delete version $version_id"
+                  PACKAGE_ERRORS=$((PACKAGE_ERRORS + 1))
+                fi
+
+                # Add a small delay to avoid rate limiting
+                sleep 1
+              fi
+            done
+
+            echo "[SUMMARY] Package $package_name: $PACKAGE_DELETED deleted, $PACKAGE_ERRORS errors"
+            TOTAL_DELETED=$((TOTAL_DELETED + PACKAGE_DELETED))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + PACKAGE_ERRORS))
+            echo ""
+          done
+
+          echo "========================================"
+          echo "CLEANUP COMPLETE"
+          echo "========================================"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN - No images were actually deleted"
+          else
+            echo "Total images deleted: $TOTAL_DELETED"
+            echo "Total errors: $TOTAL_ERRORS"
+          fi
+          echo "========================================"
+
+      - name: Create cleanup summary
+        if: always()
+        run: |
+          DRY_RUN="${{ steps.inputs.outputs.dry_run }}"
+          AGE_THRESHOLD_DAYS="${{ steps.inputs.outputs.age_threshold_days }}"
+
+          echo "# Container Image Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry Run:** $DRY_RUN" >> $GITHUB_STEP_SUMMARY
+          echo "**Age Threshold:** $AGE_THRESHOLD_DAYS days" >> $GITHUB_STEP_SUMMARY
+          echo "**Package Filter:** ${{ steps.inputs.outputs.package_filter }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Deletions per Package:** ${{ steps.inputs.outputs.max_deletions_per_package }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "## [DRY RUN] No Images Were Deleted" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "This was a dry run. Check the logs to see what would have been deleted." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Cleanup Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the workflow logs for detailed deletion results." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Package List Processed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "$CONTAINER_PACKAGES" | while IFS= read -r package_name; do
+            [ -z "$package_name" ] && continue
+            echo "- \`$package_name\`" >> $GITHUB_STEP_SUMMARY
+          done
+
+  check-current-untagged-count:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Count current untagged images
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Current Untagged Image Count ==="
+          echo ""
+
+          TOTAL_UNTAGGED=0
+
+          echo "$CONTAINER_PACKAGES" | while IFS= read -r package_name; do
+            [ -z "$package_name" ] && continue
+
+            if gh api "/user/packages/container/$package_name" >/dev/null 2>&1; then
+              UNTAGGED_COUNT=$(gh api "/user/packages/container/$package_name/versions" --paginate | \
+                jq '[.[] | select(.metadata.container.tags | length == 0)] | length')
+              echo "$package_name: $UNTAGGED_COUNT untagged images"
+              TOTAL_UNTAGGED=$((TOTAL_UNTAGGED + UNTAGGED_COUNT))
+            else
+              echo "$package_name: package does not exist"
+            fi
+          done
+
+          echo ""
+          echo "Total untagged images across all packages: $TOTAL_UNTAGGED"

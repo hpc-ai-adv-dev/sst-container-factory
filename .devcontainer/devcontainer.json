@@ -1,0 +1,34 @@
+{
+  "name": "SST-dev",
+  "image": "ghcr.io/ai-hpc-adv-dev/sst-dev:latest",
+
+  // Mount additional repositories and preserve git config
+  "mounts": [
+    // Mount git config from host (preserves user identity)
+    "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached",
+
+    // Mount SSH config and keys for git authentication (optional, but recommended)
+    "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached",
+
+    // Mount benchmarks (requires benchmarks in sibling directory)
+    "source=${localWorkspaceFolder}/../sst-benchmarks,target=/workspaces/sst-benchmarks,type=bind,consistency=cached"
+
+  ],
+
+  // Conditional mounts and GitHub user setup
+  "initializeCommand": "echo 'Setting up devcontainer mounts...'",
+
+  // Environment variables
+  "containerEnv": {
+    // Set up PATH to include SST installation
+    "PATH": "/workspaces/sst-core/sst-install/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+
+    // Disable proxy settings in container to avoid connection issues
+    //"NO_PROXY" or "no_proxy" both appear to work on mac
+    "no_proxy": "*"
+
+  },
+
+  // Don't keep container running
+  "shutdownAction": "stopContainer"
+}
