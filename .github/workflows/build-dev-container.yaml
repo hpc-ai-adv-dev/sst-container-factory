@@ -94,9 +94,9 @@ jobs:
           IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
           for platform in "${PLATFORM_ARRAY[@]}"; do
             ARCH="${platform#linux/}"
-            IMAGE_NAME="sst-dev-${ARCH}"
+            IMAGE_TAG="${TAG_SUFFIX}-${ARCH}"
 
-            if ! check_image_exists "$IMAGE_NAME" "$TAG_SUFFIX" || [ "$FORCE_REBUILD" = "true" ]; then
+            if ! check_image_exists "sst-dev" "$IMAGE_TAG" || [ "$FORCE_REBUILD" = "true" ]; then
               SHOULD_BUILD=true
               break
             fi
@@ -213,7 +213,7 @@ jobs:
         id: tags
         run: |
           TAG_SUFFIX="${{ inputs.tag_suffix }}"
-          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ steps.platform.outputs.arch }}:${TAG_SUFFIX}"
+          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${TAG_SUFFIX}-${{ steps.platform.outputs.arch }}"
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: Build and push dev container
@@ -258,7 +258,7 @@ jobs:
       - name: Validate container
         run: |
           TAG_SUFFIX="${{ inputs.tag_suffix }}"
-          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ steps.arch.outputs.arch }}:${TAG_SUFFIX}"
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${TAG_SUFFIX}-${{ steps.arch.outputs.arch }}"
 
           echo "Validating container: $IMAGE_NAME"
 
@@ -316,7 +316,7 @@ jobs:
           MANIFESTS=""
           for platform in "${PLATFORM_ARRAY[@]}"; do
             ARCH="${platform#linux/}"
-            MANIFESTS="$MANIFESTS ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${ARCH}:${TAG_SUFFIX}"
+            MANIFESTS="$MANIFESTS ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${TAG_SUFFIX}-${ARCH}"
           done
 
           # Create multi-arch manifest using buildx imagetools (cleaner, no untagged images)
@@ -348,15 +348,18 @@ jobs:
           echo "## Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.build-dev-containers.result }}" == "success" ]; then
+          if [ "${{ needs.create-manifest-lists.result }}" == "success" ]; then
             echo "[SUCCESS] **SST Development Containers:** Built successfully" >> $GITHUB_STEP_SUMMARY
-
-            # List built containers based on platforms
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Multi-architecture manifest (recommended):**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${{ inputs.tag_suffix }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Architecture-specific images:**" >> $GITHUB_STEP_SUMMARY
             PLATFORMS="${{ inputs.build_platforms }}"
             IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
             for platform in "${PLATFORM_ARRAY[@]}"; do
               ARCH="${platform#linux/}"
-              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${ARCH}:${{ inputs.tag_suffix }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${{ inputs.tag_suffix }}-${ARCH}\`" >> $GITHUB_STEP_SUMMARY
             done
           elif [ "${{ needs.check-existing-images.outputs.should_build }}" == "true" ]; then
             echo "[FAILED] **SST Development Containers:** Build failed" >> $GITHUB_STEP_SUMMARY
@@ -378,7 +381,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Use this container for SST development:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# Pull the development container" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull the development container (multi-arch, auto-selects architecture)" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}:${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Run interactively with your SST source mounted" >> $GITHUB_STEP_SUMMARY
