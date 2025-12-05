@@ -12,12 +12,13 @@ on:
         required: false
         default: 'sst-core:latest'
         type: string
-      build_platform:
-        description: 'Platform to build for'
+      build_platforms:
+        description: 'Platforms to build for'
         required: false
-        default: 'linux/amd64'
+        default: 'linux/amd64,linux/arm64'
         type: choice
         options:
+          - 'linux/amd64,linux/arm64'
           - 'linux/amd64'
           - 'linux/arm64'
       tag_suffix:
@@ -76,13 +77,17 @@ jobs:
           echo "Files in experiment directory:"
           find "$EXPERIMENT" -type f -exec ls -lh {} \;
 
-  build-experiment-container:
-    runs-on: ${{ inputs.build_platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+  build-experiment-containers:
+    runs-on: ubuntu-latest
     needs: validate-experiment
     if: needs.validate-experiment.outputs.experiment_exists == 'true'
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        platform: ["linux/amd64", "linux/arm64"]
+      fail-fast: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,7 +105,7 @@ jobs:
       - name: Extract platform info
         id: platform
         run: |
-          PLATFORM="${{ inputs.build_platform }}"
+          PLATFORM="${{ matrix.platform }}"
           ARCH="${PLATFORM##*/}"
           echo "arch=$ARCH" >> $GITHUB_OUTPUT
           echo "platform_safe=${PLATFORM//\//-}" >> $GITHUB_OUTPUT
@@ -172,17 +177,17 @@ jobs:
             com.github.run_number=${{ github.run_number }}
             com.github.repository=${{ github.repository }}
             com.github.ref_name=${{ github.ref_name }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}:${{ inputs.tag_suffix }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}-${{ steps.platform.outputs.arch }}
           push: true
           cache-from: type=gha,scope=experiment-${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}
           cache-to: type=gha,mode=max,scope=experiment-${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}
 
-      - name: Build and push experiment container (default template)
-        if: needs.validate-experiment.outputs.has_containerfile == 'false'
+      - name: Build and push experiment container (custom Containerfile)
+        if: needs.validate-experiment.outputs.has_containerfile == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ${{ inputs.experiment_name }}
-          file: ${{ steps.prepare.outputs.containerfile }}
+          file: ${{ inputs.experiment_name }}/Containerfile
           build-args: |
             BASE_IMAGE=${{ steps.prepare.outputs.base_image }}
             EXPERIMENT_NAME=${{ inputs.experiment_name }}
@@ -193,14 +198,66 @@ jobs:
             com.github.run_number=${{ github.run_number }}
             com.github.repository=${{ github.repository }}
             com.github.ref_name=${{ github.ref_name }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}:${{ inputs.tag_suffix }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}-${{ steps.platform.outputs.arch }}
           push: true
           cache-from: type=gha,scope=experiment-${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}
           cache-to: type=gha,mode=max,scope=experiment-${{ inputs.experiment_name }}-${{ steps.platform.outputs.arch }}
 
+  create-manifest:
+    runs-on: ubuntu-latest
+    needs: [validate-experiment, build-experiment-containers]
+    if: needs.build-experiment-containers.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-architecture manifest
+        run: |
+          EXPERIMENT_NAME="${{ inputs.experiment_name }}"
+          TAG_SUFFIX="${{ inputs.tag_suffix }}"
+          PLATFORMS="${{ inputs.build_platforms }}"
+
+          echo "Creating manifest for experiment: ${EXPERIMENT_NAME}"
+          echo "Tag: ${TAG_SUFFIX}"
+          echo "Platforms: ${PLATFORMS}"
+
+          # Collect architecture-specific images
+          IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
+          MANIFESTS=""
+
+          for platform in "${PLATFORM_ARRAY[@]}"; do
+            ARCH="${platform#linux/}"
+            TEMP_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${EXPERIMENT_NAME}:${TAG_SUFFIX}-${ARCH}"
+            echo "Checking: ${TEMP_TAG}"
+            if docker manifest inspect "${TEMP_TAG}" >/dev/null 2>&1; then
+              MANIFESTS="$MANIFESTS ${TEMP_TAG}"
+              echo "  [OK] Added: ${TEMP_TAG}"
+            fi
+          done
+
+          if [ -n "$MANIFESTS" ]; then
+            MANIFEST_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${EXPERIMENT_NAME}:${TAG_SUFFIX}"
+            echo "Creating multi-arch manifest: ${MANIFEST_NAME}"
+            docker buildx imagetools create --tag "${MANIFEST_NAME}" $MANIFESTS
+            echo "[SUCCESS] Created manifest: ${MANIFEST_NAME}"
+          else
+            echo "[ERROR] No images found for manifest creation"
+            exit 1
+          fi
+
   summary:
     runs-on: ubuntu-latest
-    needs: [validate-experiment, build-experiment-container]
+    needs: [validate-experiment, build-experiment-containers, create-manifest]
     if: always()
     permissions:
       contents: read
@@ -215,7 +272,7 @@ jobs:
             echo "**Base Image:** ${{ inputs.base_image }}" >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "**Build Platform:** ${{ inputs.build_platform }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Platforms:** ${{ inputs.build_platforms }}" >> $GITHUB_STEP_SUMMARY
           echo "**Container Tag:** ${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -226,15 +283,21 @@ jobs:
           echo "## Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.build-experiment-container.result }}" == "success" ]; then
+          if [ "${{ needs.create-manifest.result }}" == "success" ]; then
             echo "**Build Status:** Success" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Built Container" >> $GITHUB_STEP_SUMMARY
-
-            # Extract architecture from platform
-            PLATFORM="${{ inputs.build_platform }}"
-            ARCH="${PLATFORM#linux/}"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}-${ARCH}:${{ inputs.tag_suffix }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "### Built Containers" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Multi-architecture manifest (recommended):**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Architecture-specific images:**" >> $GITHUB_STEP_SUMMARY
+            PLATFORMS="${{ inputs.build_platforms }}"
+            IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
+            for platform in "${PLATFORM_ARRAY[@]}"; do
+              ARCH="${platform#linux/}"
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}-${ARCH}\`" >> $GITHUB_STEP_SUMMARY
+            done
           else
             echo "**Build Status:** Failed" >> $GITHUB_STEP_SUMMARY
           fi
@@ -247,12 +310,11 @@ jobs:
           echo "# Pull the container for your architecture" >> $GITHUB_STEP_SUMMARY
 
           # Extract architecture from platform for usage example
-          PLATFORM="${{ inputs.build_platform }}"
-          ARCH="${PLATFORM#linux/}"
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}-${ARCH}:${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
+          echo "# Multi-architecture manifest (auto-selects correct architecture):" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Run the container" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -it ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}-${ARCH}:${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -it ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ inputs.experiment_name }}:${{ inputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Experiment files are located in /experiments/${{ inputs.experiment_name }}" >> $GITHUB_STEP_SUMMARY
           echo "# Scripts in the experiment directory are automatically in PATH" >> $GITHUB_STEP_SUMMARY
@@ -265,16 +327,8 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "This experiment container is built on top of:" >> $GITHUB_STEP_SUMMARY
 
-            # Extract architecture from platform and construct base image reference
-            PLATFORM="${{ inputs.build_platform }}"
-            ARCH="${PLATFORM#linux/}"
+            # Show base image
             BASE_IMAGE_INPUT="${{ inputs.base_image }}"
-            if [[ "$BASE_IMAGE_INPUT" == *":"* ]]; then
-              BASE_IMAGE_NAME="${BASE_IMAGE_INPUT%:*}"
-              BASE_TAG="${BASE_IMAGE_INPUT##*:}"
-            else
-              BASE_IMAGE_NAME="$BASE_IMAGE_INPUT"
-              BASE_TAG="latest"
             fi
             echo "\`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${BASE_IMAGE_NAME}-${ARCH}:${BASE_TAG}\`" >> $GITHUB_STEP_SUMMARY
           else
