@@ -28,7 +28,7 @@ on:
       build_platforms:
         description: 'Platforms to build for'
         required: false
-        default: 'linux/amd64'
+        default: 'linux/amd64,linux/arm64'
         type: choice
         options:
           - 'linux/amd64,linux/arm64'
@@ -189,21 +189,19 @@ jobs:
           BUILD_TYPE="${{ needs.validate-inputs.outputs.build_type }}"
           TAG_SUFFIX="${{ needs.validate-inputs.outputs.tag_suffix }}"
 
+          ARCH="${{ steps.platform.outputs.arch }}"
+
           if [ "$BUILD_TYPE" = "full" ]; then
-            echo "target=full-build" >> $GITHUB_OUTPUT
-            echo "image_name=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-full-${{ steps.platform.outputs.arch }}" >> $GITHUB_OUTPUT
+            echo "package_type=full" >> $GITHUB_OUTPUT
+            echo "target=sst-full" >> $GITHUB_OUTPUT
+            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-full:${TAG_SUFFIX}-${ARCH}"
           else
-            echo "target=core-build" >> $GITHUB_OUTPUT
-            echo "image_name=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core-${{ steps.platform.outputs.arch }}" >> $GITHUB_OUTPUT
+            echo "package_type=core" >> $GITHUB_OUTPUT
+            echo "target=sst-core" >> $GITHUB_OUTPUT
+            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core:${TAG_SUFFIX}-${ARCH}"
           fi
 
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          if [ "$BUILD_TYPE" = "full" ]; then
-            echo "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-full-${{ steps.platform.outputs.arch }}:${TAG_SUFFIX}" >> $GITHUB_OUTPUT
-          else
-            echo "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core-${{ steps.platform.outputs.arch }}:${TAG_SUFFIX}" >> $GITHUB_OUTPUT
-          fi
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: Build and push custom SST container
         uses: docker/build-push-action@v5
@@ -251,7 +249,8 @@ jobs:
         run: |
           BUILD_TYPE="${{ needs.validate-inputs.outputs.build_type }}"
           TAG_SUFFIX="${{ needs.validate-inputs.outputs.tag_suffix }}"
-          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}-${{ steps.arch.outputs.arch }}:${TAG_SUFFIX}"
+          ARCH="${{ steps.arch.outputs.arch }}"
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}:${TAG_SUFFIX}-${ARCH}"
 
           echo "Validating container: $IMAGE_NAME"
 
@@ -303,21 +302,31 @@ jobs:
           echo "Build type: ${BUILD_TYPE}"
           echo "Tag suffix: ${TAG_SUFFIX}"
 
-          # Collect architecture-specific images
+          # Create manifest for the build type that was built
+          echo "Creating manifest for ${BUILD_TYPE}..."
           MANIFESTS=""
+
           for platform in "${PLATFORM_ARRAY[@]}"; do
             ARCH="${platform#linux/}"
-            MANIFESTS="$MANIFESTS ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}-${ARCH}:${TAG_SUFFIX}"
+            TEMP_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}:${TAG_SUFFIX}-${ARCH}"
+            echo "Checking: ${TEMP_TAG}"
+            if docker manifest inspect "${TEMP_TAG}" >/dev/null 2>&1; then
+              MANIFESTS="$MANIFESTS ${TEMP_TAG}"
+              echo "  [OK] Added: ${TEMP_TAG}"
+            fi
           done
 
-          # Create multi-arch manifest using buildx imagetools (cleaner, no untagged images)
-          MANIFEST_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}:${TAG_SUFFIX}"
-          echo "Creating manifest: ${MANIFEST_NAME}"
-          docker buildx imagetools create \
-            --tag ${MANIFEST_NAME} \
-            $MANIFESTS
+          if [ -n "$MANIFESTS" ]; then
+            MANIFEST_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}:${TAG_SUFFIX}"
+            echo "Creating multi-arch manifest: ${MANIFEST_NAME}"
+            docker buildx imagetools create --tag "${MANIFEST_NAME}" $MANIFESTS
+            echo "[SUCCESS] Created manifest: ${MANIFEST_NAME}"
+          else
+            echo "[ERROR] No images found for ${BUILD_TYPE}"
+            exit 1
+          fi
 
-          echo "[SUCCESS] Custom SST manifest list created successfully"
+          echo "[SUCCESS] Custom SST manifest created successfully"
           echo "Users can now pull: ${MANIFEST_NAME}"
 
   summary:
@@ -348,19 +357,19 @@ jobs:
           echo "## Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.build-custom-containers.result }}" == "success" ]; then
+          if [ "${{ needs.create-manifest-lists.result }}" == "success" ]; then
             echo "**Build Status:** Success" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Built Containers" >> $GITHUB_STEP_SUMMARY
-
-            BUILD_TYPE="${{ needs.validate-inputs.outputs.build_type }}"
-            TAG_SUFFIX="${{ needs.validate-inputs.outputs.tag_suffix }}"
-
-            # Parse platforms and list each built container
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Multi-architecture manifest (recommended):**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ needs.validate-inputs.outputs.build_type }}:${{ needs.validate-inputs.outputs.tag_suffix }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Architecture-specific images:**" >> $GITHUB_STEP_SUMMARY
             PLATFORMS="${{ inputs.build_platforms }}"
             for PLATFORM in ${PLATFORMS//,/ }; do
               ARCH="${PLATFORM##*/}"
-              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}-${ARCH}:${TAG_SUFFIX}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ needs.validate-inputs.outputs.build_type }}:${{ needs.validate-inputs.outputs.tag_suffix }}-${ARCH}\`" >> $GITHUB_STEP_SUMMARY
             done
           else
             echo "**Build Status:** Failed" >> $GITHUB_STEP_SUMMARY
@@ -372,19 +381,11 @@ jobs:
           echo "Pull and use the container:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
 
-          BUILD_TYPE="${{ needs.validate-inputs.outputs.build_type }}"
-          TAG_SUFFIX="${{ needs.validate-inputs.outputs.tag_suffix }}"
-
-          # Get first platform for usage example
-          PLATFORMS="${{ inputs.build_platforms }}"
-          FIRST_PLATFORM="${PLATFORMS%%,*}"
-          FIRST_ARCH="${FIRST_PLATFORM##*/}"
-
-          echo "# Pull the container (${FIRST_ARCH})" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}-${FIRST_ARCH}:${TAG_SUFFIX}" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull the multi-arch container (auto-selects architecture)" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ needs.validate-inputs.outputs.build_type }}:${{ needs.validate-inputs.outputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Run the container" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -it ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${BUILD_TYPE}-${FIRST_ARCH}:${TAG_SUFFIX}" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -it ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ needs.validate-inputs.outputs.build_type }}:${{ needs.validate-inputs.outputs.tag_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
