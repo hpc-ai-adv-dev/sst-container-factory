@@ -1,0 +1,143 @@
+name: Build Experiment Container
+
+# Build specialized containers for specific experiments
+# Supports custom base images and experiment-specific configurations
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment_name:
+        description: 'Name of the experiment directory (must exist in repository)'
+        required: true
+        type: string
+      base_image:
+        description: 'Base image (only used if experiment has no custom Containerfile). Examples: sst-core:latest, sst-full:15.1.0. Full registry paths also supported: ghcr.io/user/image:tag'
+        required: false
+        default: 'sst-core:latest'
+        type: string
+      build_platforms:
+        description: 'Platforms to build for'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: choice
+        options:
+          - 'linux/amd64,linux/arm64'
+          - 'linux/amd64'
+          - 'linux/arm64'
+      tag_suffix:
+        description: 'Optional tag suffix (default: latest)'
+        required: false
+        default: 'latest'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  validate-experiment:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      experiment_exists: ${{ steps.check.outputs.experiment_exists }}
+      has_containerfile: ${{ steps.check.outputs.has_containerfile }}
+      files_count: ${{ steps.check.outputs.files_count }}
+      resolved_base_image: ${{ steps.check.outputs.resolved_base_image }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate experiment directory
+        id: check
+        run: |
+          EXPERIMENT="${{ inputs.experiment_name }}"
+          echo "Checking experiment directory: $EXPERIMENT"
+
+          if [ ! -d "$EXPERIMENT" ]; then
+            echo "ERROR: Experiment directory '$EXPERIMENT' does not exist"
+            echo "experiment_exists=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "experiment_exists=true" >> $GITHUB_OUTPUT
+
+          # Check if experiment has its own Containerfile
+          if [ -f "$EXPERIMENT/Containerfile" ]; then
+            echo "has_containerfile=true" >> $GITHUB_OUTPUT
+            echo "resolved_base_image=" >> $GITHUB_OUTPUT
+          else
+            echo "has_containerfile=false" >> $GITHUB_OUTPUT
+
+            # Resolve base image path - add GHCR registry if not specified
+            BASE_IMAGE="${{ inputs.base_image }}"
+            if [[ "$BASE_IMAGE" == *"/"* ]]; then
+              # Image already contains registry/namespace
+              RESOLVED_IMAGE="$BASE_IMAGE"
+            else
+              # Default to current repo owner's GHCR
+              RESOLVED_IMAGE="ghcr.io/${{ github.repository_owner }}/$BASE_IMAGE"
+            fi
+
+            # Verify the base image exists and is accessible
+            echo "resolved_base_image=$RESOLVED_IMAGE" >> $GITHUB_OUTPUT
+            if docker manifest inspect "$RESOLVED_IMAGE" >/dev/null 2>&1; then
+              echo "Base image accessible"
+            else
+              echo "Base image not found: $RESOLVED_IMAGE"
+              echo "For images in this repository, use format: sst-core:latest"
+              echo "For external images, use full path: ghcr.io/username/image:tag"
+              exit 1
+            fi
+          fi
+
+          # Count files in experiment directory
+          FILES_COUNT=$(find "$EXPERIMENT" -type f | wc -l)
+          echo "files_count=$FILES_COUNT" >> $GITHUB_OUTPUT
+
+  build-experiment-containers:
+    needs: [validate-experiment]
+    if: needs.validate-experiment.outputs.experiment_exists == 'true'
+    uses: ./.github/workflows/_reusable-build-containers.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      container_type: 'experiment'
+      image_prefix: '${{ github.repository_owner }}'
+      tag_suffix: '${{ inputs.tag_suffix }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      experiment_name: '${{ inputs.experiment_name }}'
+      base_image: '${{ needs.validate-experiment.outputs.resolved_base_image || inputs.base_image }}'
+      containerfile_path: ${{ needs.validate-experiment.outputs.has_containerfile == 'true' && format('{0}/Containerfile', inputs.experiment_name) || 'Containerfiles/Containerfile.experiment' }}
+      docker_context: '${{ inputs.experiment_name }}'
+    secrets: inherit
+
+  validate-experiment-containers:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_reusable-validate-containers.yml
+    needs: [build-experiment-containers]
+    if: needs.build-experiment-containers.result == 'success'
+    with:
+      container_type: 'experiment'
+      image_tags: '${{ needs.build-experiment-containers.outputs.built_images }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      max_image_size_mb: 8192  # 8GB for experiments
+    secrets: inherit
+
+  generate-summary:
+    uses: ./.github/workflows/_reusable-generate-summary.yml
+    needs: [validate-experiment, build-experiment-containers, validate-experiment-containers]
+    if: always()
+    with:
+      workflow_type: 'experiment'
+      container_type: 'experiment'
+      build_successful: ${{ needs.build-experiment-containers.result == 'success' }}
+      manifest_successful: ${{ needs.build-experiment-containers.result == 'success' }}
+      validation_successful: ${{ needs.validate-experiment-containers.result == 'success' }}
+      manifest_tag: '${{ needs.build-experiment-containers.outputs.manifest_tag }}'
+      built_images: '${{ needs.build-experiment-containers.outputs.built_images }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      tag_suffix: '${{ inputs.tag_suffix }}'
+      experiment_name: '${{ inputs.experiment_name }}'
