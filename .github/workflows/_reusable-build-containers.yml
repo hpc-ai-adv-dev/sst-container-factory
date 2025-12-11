@@ -1,4 +1,4 @@
-name: Build SST Containers (for use by other workflows)
+name: _Reusable Build Containers (internal use only)
 
 on:
   workflow_call:
@@ -160,15 +160,11 @@ jobs:
         if: inputs.mpich_version != ''
         working-directory: Containerfiles
         run: |
-          echo "Files available for ${{ inputs.container_type }} container build:"
-          ls -la *.tar.gz || echo "No .tar.gz files found"
-          echo "Expected MPICH file: mpich-${{ inputs.mpich_version }}.tar.gz"
-          if [ -f "mpich-${{ inputs.mpich_version }}.tar.gz" ]; then
-            echo "[OK] MPICH file exists"
-          else
-            echo "[ERROR] MPICH file missing"
+          if [ ! -f "mpich-${{ inputs.mpich_version }}.tar.gz" ]; then
+            echo "ERROR: MPICH file mpich-${{ inputs.mpich_version }}.tar.gz not found"
             exit 1
           fi
+          echo "MPICH source file validated"
 
       - name: Cache SST sources
         id: cache-sst
@@ -271,9 +267,24 @@ jobs:
           path: Containerfiles/mpich-${{ inputs.mpich_version }}.tar.gz
           retention-days: 10
 
+      - name: Check if SST sources artifact exists
+        id: check-sst-artifact
+        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true'
+        run: |
+          # Check if artifact already exists from another job
+          if gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --paginate | jq -r '.artifacts[].name' | grep -q "^sst-sources-${{ inputs.sst_version }}$"; then
+            echo "artifact_exists=true" >> $GITHUB_OUTPUT
+            echo "SST sources artifact already exists, skipping upload"
+          else
+            echo "artifact_exists=false" >> $GITHUB_OUTPUT
+            echo "SST sources artifact does not exist, will upload"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload SST sources artifact
         uses: actions/upload-artifact@v4
-        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true'
+        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true' && steps.check-sst-artifact.outputs.artifact_exists != 'true'
         with:
           name: sst-sources-${{ inputs.sst_version }}
           path: |
@@ -371,19 +382,16 @@ jobs:
           for platform in "${PLATFORM_ARRAY[@]}"; do
             ARCH="${platform#linux/}"
             TEMP_TAG="${MANIFEST_TAG}-${ARCH}"
-            echo "Checking: ${TEMP_TAG}"
             if docker manifest inspect "${TEMP_TAG}" >/dev/null 2>&1; then
               MANIFESTS="$MANIFESTS ${TEMP_TAG}"
-              echo "  [OK] Added: ${TEMP_TAG}"
             fi
           done
 
           if [ -n "$MANIFESTS" ]; then
             echo "Creating multi-arch manifest: ${MANIFEST_TAG}"
             docker buildx imagetools create --tag "${MANIFEST_TAG}" $MANIFESTS
-            echo "[SUCCESS] Created manifest: ${MANIFEST_TAG}"
             echo "manifest_tag=${MANIFEST_TAG}" >> $GITHUB_OUTPUT
           else
-            echo "[ERROR] No images found for manifest creation"
+            echo "ERROR: No images found for manifest creation"
             exit 1
           fi

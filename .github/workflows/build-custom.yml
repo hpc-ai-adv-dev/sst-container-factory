@@ -1,0 +1,139 @@
+name: Build Custom SST Containers
+
+# Build SST containers from any Git repository and branch/tag/commit
+# Supports both core-only and full (core+elements) builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      sst_core_repo:
+        description: 'SST-core repository URL'
+        required: false
+        default: 'https://github.com/sstsimulator/sst-core.git'
+        type: string
+      sst_core_ref:
+        description: 'SST-core branch, tag, or commit SHA'
+        required: true
+        type: string
+      sst_elements_repo:
+        description: 'SST-elements repository URL (leave empty for core-only build)'
+        required: false
+        type: string
+      sst_elements_ref:
+        description: 'SST-elements branch, tag, or commit SHA (required if elements_repo provided)'
+        required: false
+        type: string
+      mpich_version:
+        description: 'MPICH version to use'
+        required: false
+        default: '4.0.2'
+        type: string
+      build_platforms:
+        description: 'Platforms to build for'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: choice
+        options:
+          - 'linux/amd64,linux/arm64'
+          - 'linux/amd64'
+          - 'linux/arm64'
+      image_name:
+        description: 'Custom image name (without registry prefix)'
+        required: false
+        default: 'sst-devel'
+        type: string
+      image_tag:
+        description: 'Custom image tag (default: core branch/ref name)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      build_type: ${{ steps.validate.outputs.build_type }}
+      tag_suffix: ${{ steps.validate.outputs.tag_suffix }}
+    steps:
+      - name: Validate inputs and determine build parameters
+        id: validate
+        run: |
+          # Determine build type
+          if [ -n "${{ inputs.sst_elements_repo }}" ]; then
+            if [ -z "${{ inputs.sst_elements_ref }}" ]; then
+              echo "::error::SST-elements ref is required when elements_repo is provided"
+              exit 1
+            fi
+            echo "build_type=full" >> $GITHUB_OUTPUT
+          else
+            echo "build_type=core" >> $GITHUB_OUTPUT
+          fi
+
+          # Determine image tag
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag_suffix=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            # Use core ref as default tag (branch name, tag name, or short SHA)
+            CORE_REF="${{ inputs.sst_core_ref }}"
+            # Clean up ref for use as tag (replace / with -)
+            TAG=$(echo "$CORE_REF" | sed 's/\//-/g' | cut -c1-50)
+            echo "tag_suffix=${TAG}" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Build type: $(cat $GITHUB_OUTPUT | grep build_type | cut -d= -f2)"
+          echo "Tag suffix: $(cat $GITHUB_OUTPUT | grep tag_suffix | cut -d= -f2)"
+
+  build-custom-containers:
+    needs: [validate-inputs]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_reusable-build-containers.yml
+    with:
+      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      image_prefix: '${{ github.repository_owner }}/${{ inputs.image_name }}'
+      tag_suffix: '${{ needs.validate-inputs.outputs.tag_suffix }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      mpich_version: '${{ inputs.mpich_version }}'
+      sst_core_repo: '${{ inputs.sst_core_repo }}'
+      sst_core_ref: '${{ inputs.sst_core_ref }}'
+      sst_elements_repo: '${{ inputs.sst_elements_repo }}'
+      sst_elements_ref: '${{ inputs.sst_elements_ref }}'
+      containerfile_path: 'Containerfiles/Containerfile.tag'
+      docker_context: 'Containerfiles'
+      build_target: ${{ needs.validate-inputs.outputs.build_type == 'full' && 'full-build' || 'core-build' }}
+    secrets: inherit
+
+  validate-custom-containers:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_reusable-validate-containers.yml
+    needs: [build-custom-containers]
+    if: needs.build-custom-containers.result == 'success'
+    with:
+      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      image_tags: '${{ needs.build-custom-containers.outputs.built_images }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      max_image_size_mb: 2048
+    secrets: inherit
+
+  generate-summary:
+    uses: ./.github/workflows/_reusable-generate-summary.yml
+    needs: [validate-inputs, build-custom-containers, validate-custom-containers]
+    if: always()
+    with:
+      workflow_type: 'custom'
+      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      build_successful: ${{ needs.build-custom-containers.result == 'success' }}
+      manifest_successful: ${{ needs.build-custom-containers.result == 'success' }}
+      validation_successful: ${{ needs.validate-custom-containers.result == 'success' }}
+      manifest_tag: '${{ needs.build-custom-containers.outputs.manifest_tag }}'
+      built_images: '${{ needs.build-custom-containers.outputs.built_images }}'
+      build_platforms: '${{ inputs.build_platforms }}'
+      tag_suffix: '${{ needs.validate-inputs.outputs.tag_suffix }}'
+      mpich_version: '${{ inputs.mpich_version }}'
