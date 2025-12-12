@@ -207,12 +207,12 @@ jobs:
         run: |
           ARCH="${{ steps.platform.outputs.arch }}"
 
-          # Simple tag generation based on container type
+          # Tag generation based on container type
           case "${{ inputs.container_type }}" in
             "core"|"full")
               TEMP_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}-${{ inputs.container_type }}:${{ inputs.tag_suffix }}-${ARCH}"
               ;;
-            "dev")
+            "dev"|"custom")
               TEMP_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}:${{ inputs.tag_suffix }}-${ARCH}"
               ;;
             "experiment")
@@ -315,7 +315,7 @@ jobs:
               "core"|"full")
                 TEMP_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}-${{ inputs.container_type }}:${{ inputs.tag_suffix }}-${ARCH}"
                 ;;
-              "dev")
+              "dev"|"custom")
                 TEMP_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}:${{ inputs.tag_suffix }}-${ARCH}"
                 ;;
               "experiment")
@@ -362,7 +362,7 @@ jobs:
             "core"|"full")
               MANIFEST_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}-${{ inputs.container_type }}:${{ inputs.tag_suffix }}"
               ;;
-            "dev")
+            "dev"|"custom")
               MANIFEST_TAG="${{ env.REGISTRY }}/${{ inputs.image_prefix }}:${{ inputs.tag_suffix }}"
               ;;
             "experiment")

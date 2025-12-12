@@ -115,7 +115,7 @@ jobs:
     if: needs.build-core-containers.result == 'success'
     with:
       container_type: 'core'
-      image_tags: '["ghcr.io/${{ github.repository_owner }}/sst-core:${{ needs.check-updates.outputs.tag_suffix }}-amd64", "ghcr.io/${{ github.repository_owner }}/sst-core:${{ needs.check-updates.outputs.tag_suffix }}-arm64"]'
+      image_tags: '${{ needs.build-core-containers.outputs.built_images }}'
       build_platforms: ${{ inputs.build_platforms || 'linux/amd64,linux/arm64' }}
       max_image_size_mb: 2048
     secrets: inherit
@@ -163,8 +163,8 @@ jobs:
       build_successful: ${{ needs.build-core-containers.result == 'success' || (needs.check-updates.outputs.build_needed == 'false' && needs.build-core-containers.result == 'skipped') }}
       manifest_successful: ${{ needs.build-core-containers.result == 'success' || (needs.check-updates.outputs.build_needed == 'false' && needs.build-core-containers.result == 'skipped') }}
       validation_successful: ${{ needs.validate-core-containers.result == 'success' || (needs.check-updates.outputs.build_needed == 'false' && needs.validate-core-containers.result == 'skipped') }}
-      manifest_tag: '${{ needs.check-updates.outputs.tag_suffix }}'
-      built_images: '["ghcr.io/${{ github.repository_owner }}/sst-core:${{ needs.check-updates.outputs.tag_suffix }}"]'
+      manifest_tag: '${{ needs.build-core-containers.outputs.manifest_tag }}'
+      built_images: '${{ needs.build-core-containers.outputs.built_images }}'
       build_platforms: ${{ inputs.build_platforms || 'linux/amd64,linux/arm64' }}
       tag_suffix: '${{ needs.check-updates.outputs.tag_suffix }}'
       mpich_version: ${{ inputs.mpich_version || '4.0.2' }}

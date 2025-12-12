@@ -94,7 +94,8 @@ jobs:
       packages: write
     uses: ./.github/workflows/_reusable-build-containers.yml
     with:
-      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      container_type: 'custom'
+      build_target: ${{ format('{0}-build', needs.validate-inputs.outputs.build_type) }}
       image_prefix: '${{ github.repository_owner }}/${{ inputs.image_name }}'
       tag_suffix: '${{ needs.validate-inputs.outputs.tag_suffix }}'
       build_platforms: '${{ inputs.build_platforms }}'
@@ -105,7 +106,6 @@ jobs:
       sst_elements_ref: '${{ inputs.sst_elements_ref }}'
       containerfile_path: 'Containerfiles/Containerfile.tag'
       docker_context: 'Containerfiles'
-      build_target: ${{ needs.validate-inputs.outputs.build_type == 'full' && 'full-build' || 'core-build' }}
     secrets: inherit
 
   validate-custom-containers:
@@ -116,7 +116,7 @@ jobs:
     needs: [build-custom-containers]
     if: needs.build-custom-containers.result == 'success'
     with:
-      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      container_type: 'custom'
       image_tags: '${{ needs.build-custom-containers.outputs.built_images }}'
       build_platforms: '${{ inputs.build_platforms }}'
       max_image_size_mb: 2048
@@ -128,7 +128,7 @@ jobs:
     if: always()
     with:
       workflow_type: 'custom'
-      container_type: '${{ needs.validate-inputs.outputs.build_type }}'
+      container_type: 'custom'
       build_successful: ${{ needs.build-custom-containers.result == 'success' }}
       manifest_successful: ${{ needs.build-custom-containers.result == 'success' }}
       validation_successful: ${{ needs.validate-custom-containers.result == 'success' }}
