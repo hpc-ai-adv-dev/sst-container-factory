@@ -1,6 +1,6 @@
 {
   "name": "SST-dev",
-  "image": "ghcr.io/ai-hpc-adv-dev/sst-dev:latest",
+  "image": "ghcr.io/hpc-ai-adv-dev/sst-dev:latest",
 
   // Mount additional repositories and preserve git config
   "mounts": [

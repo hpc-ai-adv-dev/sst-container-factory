@@ -14,12 +14,12 @@ Build containerized SST (Structural Simulation Toolkit) environments.
 ### Use Pre-built Containers
 ```bash
 # Automatically pulls the right architecture for your platform
-docker pull ghcr.io/ai-hpc-adv-dev/sst-core:15.1.0
-docker run -it ghcr.io/ai-hpc-adv-dev/sst-core:15.1.0
+docker pull ghcr.io/hpc-ai-adv-dev/sst-core:15.1.0
+docker run -it ghcr.io/hpc-ai-adv-dev/sst-core:15.1.0
 
 # Or pull the development environment
-docker pull ghcr.io/ai-hpc-adv-dev/sst-dev:latest
-docker run -it ghcr.io/ai-hpc-adv-dev/sst-dev:latest
+docker pull ghcr.io/hpc-ai-adv-dev/sst-dev:latest
+docker run -it ghcr.io/hpc-ai-adv-dev/sst-dev:latest
 ```
 
 ### Build Containers via GitHub Actions
@@ -36,10 +36,10 @@ Go to Actions tab and select:
 
 ## Container Types
 
-- **Release**: `ghcr.io/ai-hpc-adv-dev/sst-core:15.1.0` (official SST versions, multi-arch)
-- **Development**: `ghcr.io/ai-hpc-adv-dev/sst-dev:latest` (build environment with dependencies, multi-arch)
-- **Custom**: `ghcr.io/ai-hpc-adv-dev/sst-core:custom-a1b2c3d` (custom SST from git sources, multi-arch)
-- **Experiment**: `ghcr.io/ai-hpc-adv-dev/my-experiment:latest` (your scripts, architecture-specific)
+- **Release**: `ghcr.io/hpc-ai-adv-dev/sst-core:15.1.0` (official SST versions, multi-arch)
+- **Development**: `ghcr.io/hpc-ai-adv-dev/sst-dev:latest` (build environment with dependencies, multi-arch)
+- **Custom**: `ghcr.io/hpc-ai-adv-dev/sst-core:custom-a1b2c3d` (custom SST from git sources, multi-arch)
+- **Experiment**: `ghcr.io/hpc-ai-adv-dev/my-experiment:latest` (your scripts, architecture-specific)
 
 ## Automated Building & Packaging
 
