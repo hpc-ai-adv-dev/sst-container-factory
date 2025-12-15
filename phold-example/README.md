@@ -17,10 +17,10 @@ Once the container is built using the "Build Experiment Container" workflow:
 
 ```bash
 # Pull the experiment container
-docker pull ghcr.io/ai-hpc-adv-dev/example-experiment:latest
+docker pull ghcr.io/hpc-ai-adv-dev/example-experiment:latest
 
 # Run the container
-docker run -it ghcr.io/ai-hpc-adv-dev/example-experiment:latest
+docker run -it ghcr.io/hpc-ai-adv-dev/example-experiment:latest
 
 # Inside the container, experiment files are in /experiments/example-experiment
 cd /experiments/example-experiment
