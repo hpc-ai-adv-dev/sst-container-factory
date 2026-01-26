@@ -1,0 +1,107 @@
+# ============================================================
+# JSON Workflow Experiments - Parameter Sweep
+# ============================================================
+#
+# CONFIGURATION RATIONALE:
+# ------------------------
+# This experiment uses a min/mid/max sampling strategy combined
+# with diagonal node×rank scaling to efficiently explore the
+# parameter space while maintaining meaningful coverage.
+#
+# 1. Heights: [4096, 16384, 65536] (2^12, 2^14, 2^16)
+#    - Samples small, medium, and large heights
+#
+# 2. Widths: [256, 1024, 4096] (2^8, 2^10, 2^12)
+#    - Samples small, medium, and large widths
+#
+# 3. Node×Rank Pairs: [(4,4), (8,8), (16,16)]
+#    - Uses diagonal scaling (matched node and rank counts)
+#    - Represents realistic HPC scaling patterns where compute
+#      resources scale uniformly
+#    - Total processes: 16, 64, 256 respectively
+#
+# 4. Num Rings: 1 (fixed)
+#    - Ring topology fixed to focus on scaling behavior
+#
+# TOTAL: 3 heights × 3 widths × 3 node/rank pairs = 27 configurations
+#
+# ============================================================
+
+# ***** MPI FUNCTION ******
+# Usage: submit_all_mpi_experiments [trials] [mode]
+# Example: submit_all_mpi_experiments 5 container
+
+submit_all_mpi_experiments() {
+    local trials=${1:-5}
+    local mode=${2:-container}
+    
+    # Min/mid/max sampling for problem size
+    local heights=(4096 16384 65536)
+    local widths=(256 1024 4096)
+    
+    # Diagonal node×rank pairs (matched scaling)
+    local node_rank_pairs=("4 4" "8 8" "16 16")
+    
+    # Fixed ring size
+    local numRings=1
+    
+    local total=0
+    for height in "${heights[@]}"; do
+        for width in "${widths[@]}"; do
+            for pair in "${node_rank_pairs[@]}"; do
+                read -r numNodes numRanks <<< "$pair"
+                echo "Submitting MPI: height=${height} width=${width} numRings=${numRings} numNodes=${numNodes} numRanks=${numRanks}"
+                ./submit_generate_mpi.sh ${height} ${width} ${numRings} ${numNodes} ${numRanks} ${trials} ${mode}
+                ((total++))
+            done
+        done
+    done
+    echo "Total MPI configurations submitted: ${total}"
+}
+
+# ***** PYTHON FUNCTION *****
+# Usage: submit_all_python_experiments [trials]
+# Example: submit_all_python_experiments 5
+
+submit_all_python_experiments() {
+    local trials=${1:-5}
+    
+    # Min/mid/max sampling for problem size
+    local heights=(4096 16384 65536)
+    local widths=(256 1024 4096)
+    
+    # Diagonal node×rank pairs (matched scaling)
+    local node_rank_pairs=("4 4" "8 8" "16 16")
+    
+    # Fixed ring size
+    local numRings=1
+    
+    local total=0
+    for height in "${heights[@]}"; do
+        for width in "${widths[@]}"; do
+            for pair in "${node_rank_pairs[@]}"; do
+                read -r numNodes numRanks <<< "$pair"
+                echo "Submitting Python: height=${height} width=${width} numRings=${numRings} numNodes=${numNodes} numRanks=${numRanks}"
+                ./submit_generate_python.sh ${height} ${width} ${numRings} ${numNodes} ${numRanks} ${trials}
+                ((total++))
+            done
+        done
+    done
+    echo "Total Python configurations submitted: ${total}"
+}
+
+# ============================================================
+# HOW TO USE:
+# ============================================================
+# 1. Source this file to load the functions:
+#    source json_workflow_experiments.txt
+#
+# 2. Run MPI experiments (5 trials, container mode):
+#    submit_all_mpi_experiments 5 container
+#
+# 3. Run Python experiments (5 trials):
+#    submit_all_python_experiments 5
+#
+# Total configurations per function: 3 × 3 × 3 = 27
+# With 5 trials each: 27 × 5 = 135 jobs per function
+# ============================================================
