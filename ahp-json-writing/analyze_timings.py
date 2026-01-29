@@ -135,19 +135,75 @@ def collect_timing_data():
     return data
 
 
+def remove_outliers_iqr(values, k=1.5):
+    """Remove outliers using IQR method and clustering detection.
+    
+    Values outside [Q1 - k*IQR, Q3 + k*IQR] are considered outliers.
+    Also detects bimodal distributions where values are suspiciously low
+    compared to the median (likely failed/incomplete runs).
+    
+    Returns cleaned values and number of outliers removed.
+    """
+    if len(values) < 3:
+        return values, 0
+    
+    arr = np.array(values)
+    
+    # First pass: remove values that are suspiciously low (< 10% of median)
+    # These are likely failed or incomplete runs
+    median = np.median(arr)
+    min_threshold = median * 0.1
+    arr = arr[arr >= min_threshold]
+    
+    if len(arr) < 2:
+        # If too many removed, return original
+        return values, 0
+    
+    # Second pass: IQR-based outlier removal
+    if len(arr) >= 4:
+        q1 = np.percentile(arr, 25)
+        q3 = np.percentile(arr, 75)
+        iqr = q3 - q1
+        
+        lower_bound = q1 - k * iqr
+        upper_bound = q3 + k * iqr
+        
+        cleaned = arr[(arr >= lower_bound) & (arr <= upper_bound)]
+    else:
+        cleaned = arr
+    
+    n_removed = len(values) - len(cleaned)
+    
+    return cleaned.tolist(), n_removed
+
+
 def compute_statistics(data):
-    """Compute mean, min, and max for each configuration."""
+    """Compute mean, min, max, and std for each configuration after removing outliers."""
     stats = {}
+    total_outliers = 0
+    
     for config, timings in data.items():
         stats[config] = {}
         for key, values in timings.items():
             if values:
-                stats[config][key] = {
-                    'mean': np.mean(values),
-                    'min': np.min(values),
-                    'max': np.max(values),
-                    'values': values,
-                }
+                cleaned_values, n_removed = remove_outliers_iqr(values)
+                if n_removed > 0:
+                    print(f"  Removed {n_removed} outlier(s) from {key} for config {config}")
+                    total_outliers += n_removed
+                
+                if cleaned_values:
+                    stats[config][key] = {
+                        'mean': np.mean(cleaned_values),
+                        'std': np.std(cleaned_values),
+                        'min': np.min(cleaned_values),
+                        'max': np.max(cleaned_values),
+                        'values': cleaned_values,
+                        'n_removed': n_removed,
+                    }
+    
+    if total_outliers > 0:
+        print(f"\nTotal outliers removed: {total_outliers}")
+    
     return stats
 
 
@@ -168,6 +224,7 @@ def organize_by_height_width(stats):
             organized[size_key][timing_type][numNodes].append({
                 'total_ranks': total_ranks,
                 'mean': stat['mean'],
+                'std': stat['std'],
                 'min': stat['min'],
                 'max': stat['max'],
             })
@@ -234,8 +291,8 @@ def plot_generation_timings(stats):
             all_x_vals = set()
             
             # Store data for computing differences
-            mpi_data = {}  # {(numNodes, total_ranks): max_value}
-            py_data = {}   # {(numNodes, total_ranks): max_value}
+            mpi_data = {}  # {(numNodes, total_ranks): mean_value}
+            py_data = {}   # {(numNodes, total_ranks): mean_value}
             
             # Plot With SST (gen_mpi) in blue
             if 'gen_mpi' in timing_data:
@@ -248,16 +305,17 @@ def plot_generation_timings(stats):
                     points = sorted(node_data[numNodes], key=lambda p: p['total_ranks'])
                     
                     x_vals = [p['total_ranks'] for p in points]
-                    maxes = [p['max'] for p in points]
+                    means = [p['mean'] for p in points]
                     
                     # Store for difference calculation
-                    for x, m in zip(x_vals, maxes):
+                    for x, m in zip(x_vals, means):
                         mpi_data[(numNodes, x)] = m
                     
                     all_x_vals.update(x_vals)
                     
-                    scatter = ax.scatter(x_vals, maxes, marker=marker, color=sst_color, 
-                              label=f'With SST ({numNodes} Nodes)', s=80)
+                    # Plot scatter points
+                    scatter = ax.scatter(x_vals, means, marker=marker, color=sst_color,
+                                        s=80, label=f'With SST ({numNodes} Nodes)')
                     
                     # Only collect legend entries from first subplot
                     if first_plot:
@@ -275,16 +333,17 @@ def plot_generation_timings(stats):
                     points = sorted(node_data[numNodes], key=lambda p: p['total_ranks'])
                     
                     x_vals = [p['total_ranks'] for p in points]
-                    maxes = [p['max'] for p in points]
+                    means = [p['mean'] for p in points]
                     
                     # Store for difference calculation
-                    for x, m in zip(x_vals, maxes):
+                    for x, m in zip(x_vals, means):
                         py_data[(numNodes, x)] = m
                     
                     all_x_vals.update(x_vals)
                     
-                    scatter = ax.scatter(x_vals, maxes, marker=marker, color=no_sst_color, 
-                              label=f'Without SST ({numNodes} Nodes)', s=80)
+                    # Plot scatter points
+                    scatter = ax.scatter(x_vals, means, marker=marker, color=no_sst_color,
+                                        s=80, label=f'Without SST ({numNodes} Nodes)')
                     
                     # Only collect legend entries from first subplot
                     if first_plot:
@@ -331,7 +390,7 @@ def plot_generation_timings(stats):
                 ax.set_xlabel('Total Ranks')
     
     # Add overarching title
-    fig.suptitle('PHOLD JSON Dump Timings (Log₂ x-axis, Log₁₀ y-axis)', fontsize=14, y=0.98)
+    fig.suptitle('PHOLD JSON Writing Timings (Log₂ x-axis, Log₁₀ y-axis)', fontsize=14, y=0.98)
     
     # Add shared legend at the bottom
     fig.legend(all_handles, all_labels, loc='lower center', ncol=len(all_labels), 
@@ -346,7 +405,7 @@ def plot_generation_timings(stats):
 def print_summary(stats):
     """Print a summary of collected data."""
     print("\n" + "="*80)
-    print("TIMING DATA SUMMARY")
+    print("TIMING DATA SUMMARY (after outlier removal)")
     print("="*80)
     
     for config in sorted(stats.keys()):
@@ -361,10 +420,13 @@ def print_summary(stats):
         
         for timing_type, stat in sorted(stats[config].items()):
             mean_val = stat['mean']
+            std_val = stat['std']
             min_val = stat['min']
             max_val = stat['max']
             n_trials = len(stat['values'])
-            print(f"  {timing_type:12s}: {mean_val:8.3f} s (min: {min_val:.3f}, max: {max_val:.3f}) ({n_trials} trials)")
+            n_removed = stat.get('n_removed', 0)
+            removed_str = f", {n_removed} outliers removed" if n_removed > 0 else ""
+            print(f"  {timing_type:12s}: {mean_val:8.3f} ± {std_val:.3f} s (min: {min_val:.3f}, max: {max_val:.3f}) ({n_trials} trials{removed_str})")
 
 
 def main():
