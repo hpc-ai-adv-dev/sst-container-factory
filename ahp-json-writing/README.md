@@ -40,7 +40,7 @@ Convert the Podman image to Apptainer SIF format for HPC use:
 
 This creates `ahp-json-writing.sif` in the current directory.
 
-### 5. Run Experiments
+### 4. Run Experiments
 
 #### Single Experiment
 
