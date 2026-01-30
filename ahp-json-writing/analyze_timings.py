@@ -98,7 +98,7 @@ def collect_timing_data():
         
         # Collect generation timings
         gen_mpi_files = list(subdir.glob('gen_mpi_time_trial_*.txt'))
-        gen_py_files = list(subdir.glob('gen_py_trial_*_elapsed.txt'))
+        gen_py_files = list(subdir.glob('gen_py_time_trial_*.txt'))
         
         for f in gen_mpi_files:
             trial_num = re.search(r'trial_(\d+)', f.name)

@@ -28,12 +28,11 @@
 # ============================================================
 
 # ***** MPI FUNCTION ******
-# Usage: submit_all_mpi_experiments [trials] [mode]
-# Example: submit_all_mpi_experiments 5 container
+# Usage: submit_all_mpi_experiments [trials]
+# Example: submit_all_mpi_experiments 5
 
 submit_all_mpi_experiments() {
     local trials=${1:-5}
-    local mode=${2:-container}
     
     # Min/mid/max sampling for problem size
     local heights=(4096 16384 65536)
@@ -51,7 +50,7 @@ submit_all_mpi_experiments() {
             for pair in "${node_rank_pairs[@]}"; do
                 read -r numNodes numRanks <<< "$pair"
                 echo "Submitting MPI: height=${height} width=${width} numRings=${numRings} numNodes=${numNodes} numRanks=${numRanks}"
-                ./submit_generate_mpi.sh ${height} ${width} ${numRings} ${numNodes} ${numRanks} ${trials} ${mode}
+                ./submit_generate_mpi.sh ${height} ${width} ${numRings} ${numNodes} ${numRanks} ${trials}
                 ((total++))
             done
         done
@@ -96,8 +95,8 @@ submit_all_python_experiments() {
 # 1. Source this file to load the functions:
 #    source json_workflow_experiments.txt
 #
-# 2. Run MPI experiments (5 trials, container mode):
-#    submit_all_mpi_experiments 5 container
+# 2. Run MPI experiments (5 trials):
+#    submit_all_mpi_experiments 5
 #
 # 3. Run Python experiments (5 trials):
 #    submit_all_python_experiments 5

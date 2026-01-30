@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-# Usage: ./submit_generate_mpi.sh height width numRings numNodes numRanks trials mode
+# Usage: ./submit_generate_mpi.sh height width numRings numNodes numRanks trials
 
 set -euo pipefail
-
-ENV_SCRIPT="./setSSTEnvironment.sh"
 
 height=$1
 width=$2
@@ -12,16 +10,8 @@ numRings=$3
 numNodes=$4
 numRanks=$5
 trials=${6:-1}
-mode=${7:-container}
 
-if [ "$mode" = "container" ]; then
-    prefix="source \"${ENV_SCRIPT}\" container && { time e4s-cl -q launch --image ahp-json-writing.sif srun -N ${numNodes} --ntasks-per-node=${numRanks} -- "
-elif [ "$mode" = "source" ]; then
-    prefix="source \"${ENV_SCRIPT}\" source && { time srun -N ${numNodes} --ntasks-per-node=${numRanks} "
-else
-    echo "Invalid mode: $mode. Use 'container' or 'source'."
-    exit 1
-fi
+prefix="{ time e4s-cl -q launch --image ahp-json-writing.sif srun -N ${numNodes} --ntasks-per-node=${numRanks} -- "
 
 output_dir="output/height-${height}_width-${width}_numRings-${numRings}_numNodes-${numNodes}_numRanks-${numRanks}"
 
@@ -38,5 +28,5 @@ for trial in $(seq 0 $((trials-1))); do
            --ntasks-per-node=${numRanks} \
            --output="${output_dir}/${jobname}.out" \
            --error="${output_dir}/${jobname}.err" \
-           --wrap "${prefix} sst --parallel-load=SINGLE /workspace/sst-benchmarks/phold/phold_dist_ahp.py -- --height ${height} --width ${width} --numRings ${numRings} --numNodes ${numNodes} --numRanks ${numRanks} --write ; } 2> ${output_dir}/gen_mpi_time_trial_${trial}.txt"
+           --wrap "${prefix} sst --parallel-load=SINGLE /workspace/sst-benchmarks/phold/phold_dist_ahp.py -- --height ${height} --width ${width} --numRings ${numRings} --numNodes ${numNodes} --numRanks ${numRanks} --trial ${trial} --write ; } 2> ${output_dir}/gen_mpi_time_trial_${trial}.txt"
 done
