@@ -144,7 +144,6 @@ ahp-json-writing/
 Experiments create outputs in `output/height-{h}_width-{w}_numRings-{r}_numNodes-{n}_numRanks-{rk}/`:
 - `gen_mpi_time_trial_*.txt` - MPI generation timing
 - `gen_py_time_trial_*.txt` - Python generation timing
-- `sim_*_timing_trial_*.json` - Simulation timing data
 - `*.out`, `*.err` - Job stdout/stderr logs
 
 ## License
