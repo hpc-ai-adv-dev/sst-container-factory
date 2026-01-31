@@ -166,23 +166,71 @@ jobs:
           fi
           echo "MPICH source file validated"
 
-      - name: Cache SST sources
-        id: cache-sst
+      - name: Determine SST cache key and paths
+        id: sst-cache-config
         if: inputs.sst_version != ''
+        run: |
+          # Determine if we need elements based on build target or elements repo input
+          if [[ "${{ inputs.build_target }}" == "sst-full" ]] || [[ "${{ inputs.container_type }}" == "full" ]] || [[ -n "${{ inputs.sst_elements_repo }}" ]]; then
+            echo "needs_elements=true" >> $GITHUB_OUTPUT
+            echo "cache_key=sst-sources-full-${{ inputs.sst_version }}" >> $GITHUB_OUTPUT
+          else
+            echo "needs_elements=false" >> $GITHUB_OUTPUT
+            echo "cache_key=sst-sources-core-${{ inputs.sst_version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Cache SST sources (core-only)
+        id: cache-sst-core
+        if: inputs.sst_version != '' && steps.sst-cache-config.outputs.needs_elements == 'false'
+        uses: actions/cache@v3
+        with:
+          path: Containerfiles/sstcore-${{ inputs.sst_version }}.tar.gz
+          key: ${{ steps.sst-cache-config.outputs.cache_key }}
+
+      - name: Cache SST sources (full)
+        id: cache-sst-full
+        if: inputs.sst_version != '' && steps.sst-cache-config.outputs.needs_elements == 'true'
         uses: actions/cache@v3
         with:
           path: |
             Containerfiles/sstcore-${{ inputs.sst_version }}.tar.gz
             Containerfiles/sstelements-${{ inputs.sst_version }}.tar.gz
-          key: sst-sources-${{ inputs.sst_version }}
+          key: ${{ steps.sst-cache-config.outputs.cache_key }}
 
       - name: Download SST sources
-        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true'
+        if: inputs.sst_version != '' && ((steps.sst-cache-config.outputs.needs_elements == 'false' && steps.cache-sst-core.outputs.cache-hit != 'true') || (steps.sst-cache-config.outputs.needs_elements == 'true' && steps.cache-sst-full.outputs.cache-hit != 'true'))
         working-directory: Containerfiles
         run: |
           echo "Downloading SST ${{ inputs.sst_version }} sources..."
+
+          # Always download SST-core
           wget https://github.com/sstsimulator/sst-core/releases/download/v${{ inputs.sst_version }}_Final/sstcore-${{ inputs.sst_version }}.tar.gz --no-check-certificate
-          wget https://github.com/sstsimulator/sst-elements/releases/download/v${{ inputs.sst_version }}_Final/sstelements-${{ inputs.sst_version }}.tar.gz --no-check-certificate
+
+          # Only download elements if building full version or elements are explicitly needed
+          if [[ "${{ steps.sst-cache-config.outputs.needs_elements }}" == "true" ]]; then
+            echo "Downloading SST-elements sources..."
+            wget https://github.com/sstsimulator/sst-elements/releases/download/v${{ inputs.sst_version }}_Final/sstelements-${{ inputs.sst_version }}.tar.gz --no-check-certificate
+          else
+            echo "Skipping SST-elements download for core-only build"
+          fi
+
+      - name: Validate SST sources
+        if: inputs.sst_version != ''
+        working-directory: Containerfiles
+        run: |
+          # Check core sources always exist
+          if [ ! -f "sstcore-${{ inputs.sst_version }}.tar.gz" ]; then
+            echo "ERROR: SST-core source file sstcore-${{ inputs.sst_version }}.tar.gz not found"
+            exit 1
+          fi
+
+          # Check elements sources exist when needed
+          if [[ "${{ steps.sst-cache-config.outputs.needs_elements }}" == "true" ]]; then
+            if [ ! -f "sstelements-${{ inputs.sst_version }}.tar.gz" ]; then
+              echo "ERROR: SST-elements source file sstelements-${{ inputs.sst_version }}.tar.gz not found but required for build target '${{ inputs.build_target }}'"
+              exit 1
+            fi
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -269,24 +317,36 @@ jobs:
 
       - name: Check if SST sources artifact exists
         id: check-sst-artifact
-        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true'
+        if: inputs.sst_version != '' && ((steps.sst-cache-config.outputs.needs_elements == 'false' && steps.cache-sst-core.outputs.cache-hit != 'true') || (steps.sst-cache-config.outputs.needs_elements == 'true' && steps.cache-sst-full.outputs.cache-hit != 'true'))
         run: |
+          # Use build-type specific artifact name
+          ARTIFACT_NAME="sst-sources-${{ steps.sst-cache-config.outputs.needs_elements == 'true' && 'full' || 'core' }}-${{ inputs.sst_version }}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
           # Check if artifact already exists from another job
-          if gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --paginate | jq -r '.artifacts[].name' | grep -q "^sst-sources-${{ inputs.sst_version }}$"; then
+          if gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --paginate | jq -r '.artifacts[].name' | grep -q "^${ARTIFACT_NAME}$"; then
             echo "artifact_exists=true" >> $GITHUB_OUTPUT
-            echo "SST sources artifact already exists, skipping upload"
+            echo "SST sources artifact ${ARTIFACT_NAME} already exists, skipping upload"
           else
             echo "artifact_exists=false" >> $GITHUB_OUTPUT
-            echo "SST sources artifact does not exist, will upload"
+            echo "SST sources artifact ${ARTIFACT_NAME} does not exist, will upload"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload SST sources artifact
+      - name: Upload SST sources artifact (core-only)
         uses: actions/upload-artifact@v4
-        if: inputs.sst_version != '' && steps.cache-sst.outputs.cache-hit != 'true' && steps.check-sst-artifact.outputs.artifact_exists != 'true'
+        if: inputs.sst_version != '' && steps.cache-sst-core.outputs.cache-hit != 'true' && steps.check-sst-artifact.outputs.artifact_exists != 'true' && steps.sst-cache-config.outputs.needs_elements == 'false'
         with:
-          name: sst-sources-${{ inputs.sst_version }}
+          name: ${{ steps.check-sst-artifact.outputs.artifact_name }}
+          path: Containerfiles/sstcore-${{ inputs.sst_version }}.tar.gz
+          retention-days: 10
+
+      - name: Upload SST sources artifact (full)
+        uses: actions/upload-artifact@v4
+        if: inputs.sst_version != '' && steps.cache-sst-full.outputs.cache-hit != 'true' && steps.check-sst-artifact.outputs.artifact_exists != 'true' && steps.sst-cache-config.outputs.needs_elements == 'true'
+        with:
+          name: ${{ steps.check-sst-artifact.outputs.artifact_name }}
           path: |
             Containerfiles/sstcore-${{ inputs.sst_version }}.tar.gz
             Containerfiles/sstelements-${{ inputs.sst_version }}.tar.gz
