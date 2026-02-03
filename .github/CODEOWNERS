@@ -1,0 +1,4 @@
+# The below owners will be the default reviewers for 
+# all pull requests to the repo. 
+# @arezaii is Primary and @alvaradoo is Secondary 
+*       @arezaii @alvaradoo
