@@ -169,6 +169,11 @@ ARG SSTver=15.0.0
 # Copy only the installed SST core binaries and libraries
 COPY --from=core-build /opt/SST/${SSTver} /opt/SST/${SSTver}
 
+# Set locale so that we can print unicode characters
+RUN apt-get update && apt-get install -y locales \
+    && locale-gen en_US.UTF-8 \
+    && update-locale LANG=en_US.UTF-8
+
 ENV PATH="$PATH:/opt/SST/${SSTver}/bin/"
 ENV LD_LIBRARY_PATH="/opt/SST/${SSTver}/lib:$LD_LIBRARY_PATH"
 WORKDIR /workspace
