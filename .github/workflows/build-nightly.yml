@@ -117,7 +117,7 @@ jobs:
       container_type: 'core'
       image_tags: '${{ needs.build-core-containers.outputs.built_images }}'
       build_platforms: ${{ inputs.build_platforms || 'linux/amd64,linux/arm64' }}
-      max_image_size_mb: 2048
+      max_image_size_mb: 4096
     secrets: inherit
 
 

@@ -119,7 +119,7 @@ jobs:
       container_type: 'custom'
       image_tags: '${{ needs.build-custom-containers.outputs.built_images }}'
       build_platforms: '${{ inputs.build_platforms }}'
-      max_image_size_mb: 2048
+      max_image_size_mb: 4096
     secrets: inherit
 
   generate-summary:
