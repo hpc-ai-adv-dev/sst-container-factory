@@ -336,7 +336,6 @@ jobs:
             com.github.ref_name=${{ github.ref_name }}
             com.container.type=${{ inputs.container_type }}
             sst.perf_tracking=${{ inputs.enable_perf_tracking }}
-            ${{ inputs.enable_perf_tracking && 'sst.build_variant=perf-tracking' || 'sst.build_variant=standard' }}
           tags: ${{ steps.tags.outputs.temp_tag }}
           push: true
           cache-from: type=gha,scope=${{ inputs.container_type }}-${{ inputs.tag_suffix }}-${{ steps.platform.outputs.arch }}
