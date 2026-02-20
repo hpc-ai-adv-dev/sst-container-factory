@@ -42,7 +42,7 @@ ARG SSTver=15.0.0
 ARG mpich=4.0.2
 ARG mpich_prefix=mpich-$mpich
 ARG NCPUS=2
-ARG ENABLE_PERF_TRACKING=
+ARG ENABLE_PERF_TRACKING
 
 WORKDIR /tmp
 
@@ -82,6 +82,7 @@ FROM base AS core-build
 # Re-declare ARG for this stage
 ARG SSTver=15.0.0
 ARG NCPUS=2
+ARG ENABLE_PERF_TRACKING
 
 RUN mkdir -p /opt/SST/${SSTver}/src
 
