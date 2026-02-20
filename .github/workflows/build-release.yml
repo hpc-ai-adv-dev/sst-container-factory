@@ -49,7 +49,7 @@ on:
         default: false
         type: boolean
       enable_perf_tracking:
-        description: 'Enable SST performance tracking (WARNING: adds significant runtime overhead, not for production)'
+        description: 'Enable SST performance tracking (WARNING: adds runtime overhead, not for production)'
         required: false
         default: false
         type: boolean

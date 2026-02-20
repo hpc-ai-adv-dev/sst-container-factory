@@ -47,7 +47,7 @@ on:
         required: false
         type: string
       enable_perf_tracking:
-        description: 'Enable SST performance tracking (impacts performance)'
+        description: 'Enable SST performance tracking (impacts performance - not for production)'
         required: false
         default: false
         type: boolean
