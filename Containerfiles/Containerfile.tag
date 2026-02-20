@@ -52,6 +52,7 @@ RUN apt update && apt install -y \
     automake \
     git \
     gfortran \
+    locales \
     python3 \
     python3-dev \
     python3-pip \
@@ -61,6 +62,14 @@ RUN apt update && apt install -y \
     zlib1g-dev \
     wget \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Configure UTF-8 locale for unicode character support
+RUN locale-gen en_US.UTF-8 \
+    && update-locale LANG=en_US.UTF-8 \
+    && update-locale LC_ALL=en_US.UTF-8
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 # Copy MPICH source
 COPY ${mpich_prefix}.tar.gz /tmp/
