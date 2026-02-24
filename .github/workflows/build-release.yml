@@ -48,6 +48,11 @@ on:
         required: false
         default: false
         type: boolean
+      enable_perf_tracking:
+        description: 'Enable SST performance tracking (WARNING: adds runtime overhead, not for production)'
+        required: false
+        default: false
+        type: boolean
 
 env:
   REGISTRY: ghcr.io
@@ -71,6 +76,7 @@ jobs:
       build_target: 'sst-core'
       force_rebuild: ${{ inputs.force_rebuild }}
       ignore_cache: ${{ inputs.ignore_cache }}
+      enable_perf_tracking: ${{ inputs.enable_perf_tracking }}
     secrets: inherit
 
   build-full-containers:
@@ -91,6 +97,7 @@ jobs:
       build_target: 'sst-full'
       force_rebuild: ${{ inputs.force_rebuild }}
       ignore_cache: ${{ inputs.ignore_cache }}
+      enable_perf_tracking: ${{ inputs.enable_perf_tracking }}
     secrets: inherit
 
   validate-core-containers:

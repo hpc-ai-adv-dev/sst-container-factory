@@ -4,6 +4,7 @@
 #   SSTver: SST version to build (default: 15.0.0, valid: 14.0.0, 14.1.0, 15.0.0)
 #   mpich:  MPICH version  (default: 4.0.2)
 #   NCPUS:  Parallel make jobs (default: 2)
+#   ENABLE_PERF_TRACKING: Enable performance tracking in SST-core (causes performance hit)
 #
 # STAGES DEFINED:
 #   base       - installs OS + build dependencies + compiles MPICH
@@ -41,6 +42,7 @@ ARG SSTver=15.0.0
 ARG mpich=4.0.2
 ARG mpich_prefix=mpich-$mpich
 ARG NCPUS=2
+ARG ENABLE_PERF_TRACKING
 
 WORKDIR /tmp
 
@@ -80,6 +82,7 @@ FROM base AS core-build
 # Re-declare ARG for this stage
 ARG SSTver=15.0.0
 ARG NCPUS=2
+ARG ENABLE_PERF_TRACKING
 
 RUN mkdir -p /opt/SST/${SSTver}/src
 
@@ -95,7 +98,12 @@ RUN if [ -z "$NCPUS" ]; then \
         export NCPUS=$(($(nproc) / 2)); \
         if [ "$NCPUS" -lt 1 ]; then export NCPUS=1; fi; \
     fi && \
-    ./configure --prefix=/opt/SST/${SSTver} && \
+    CONFIGURE_FLAGS="--prefix=/opt/SST/${SSTver}"; \
+    if [ -n "${ENABLE_PERF_TRACKING}" ]; then \
+        CONFIGURE_FLAGS="$CONFIGURE_FLAGS --enable-perf-tracking"; \
+        echo "[INFO] Enabling SST performance tracking (will impact performance)"; \
+    fi && \
+    ./configure $CONFIGURE_FLAGS && \
     make -j$NCPUS all && \
     make install && \
     make clean && \
