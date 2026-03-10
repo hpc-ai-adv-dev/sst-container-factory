@@ -4,60 +4,17 @@
 
 set -euo pipefail
 
-# Simple logging functions (avoid complex dependencies)
-log_info() { echo "[INFO] $1"; }
-log_success() { echo "[SUCCESS] $1"; }
-log_warning() { echo "[WARNING] $1"; }
-log_error() { echo "[ERROR] $1"; }
-log_group_start() { echo "=== $1 ==="; }
-log_group_end() { echo; }
+# Source required libraries for common functionality
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/scripts/lib/config.sh"
+source "${SCRIPT_DIR}/scripts/lib/logging.sh"
+source "${SCRIPT_DIR}/scripts/lib/platform.sh"
+source "${SCRIPT_DIR}/scripts/lib/validation.sh"
+source "${SCRIPT_DIR}/scripts/lib/github-actions.sh"
+source "${SCRIPT_DIR}/scripts/lib/cleanup.sh"
 
-# Auto-detect container engine
-detect_container_engine() {
-    local engine="${CONTAINER_ENGINE:-}"
-    if [[ -z "$engine" ]]; then
-        if command -v podman &> /dev/null; then
-            engine="podman"
-        elif command -v docker &> /dev/null; then
-            engine="docker"
-        else
-            echo "podman"  # fallback
-            return
-        fi
-    fi
-    echo "$engine"
-}
-
-# Auto-detect platform
-detect_platform() {
-    local arch=$(uname -m)
-    case "$arch" in
-        x86_64)
-            echo "linux/amd64"
-            ;;
-        aarch64|arm64)
-            echo "linux/arm64"
-            ;;
-        *)
-            echo "linux/amd64"  # fallback
-            ;;
-    esac
-}
-
-# Simple validation functions (adapted from validation.sh)
-image_exists() {
-    local engine="$1"
-    local image_tag="$2"
-    "$engine" image inspect "$image_tag" &> /dev/null
-}
-
-get_image_size_mb() {
-    local engine="$1"
-    local image_tag="$2"
-    local size_bytes
-    size_bytes=$("$engine" image inspect "$image_tag" --format='{{.Size}}' 2>/dev/null || echo "0")
-    echo $((size_bytes / 1024 / 1024))
-}
+# Register cleanup handler for consistent resource management
+register_cleanup_handler
 
 quick_validate_image() {
     local engine="$1"
@@ -89,7 +46,7 @@ quick_validate_image() {
 no_exec_validate_image() {
     local engine="$1"
     local image_tag="$2"
-    local max_size_mb="${3:-2048}"
+    local max_size_mb="${3:-$DEFAULT_MAX_SIZE_FULL}"
 
     log_info "No-exec validation of $image_tag"
 
@@ -126,24 +83,12 @@ full_validate_image() {
 
     log_info "Delegating to full validation script..."
 
-    # Source and call the comprehensive validation functions
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -f "${script_dir}/scripts/lib/validation.sh" ]]; then
-        # Temporarily source what we need for full validation
-        source "${script_dir}/scripts/lib/github-actions.sh" || true
-        source "${script_dir}/scripts/lib/logging.sh" || true
-        source "${script_dir}/scripts/lib/platform.sh" || true
-        source "${script_dir}/scripts/lib/validation.sh" || true
-
-        if validate_container "$engine" "$image_tag" "$container_type"; then
-            log_success "Full validation passed"
-            return 0
-        else
-            log_error "Full validation failed"
-            return 1
-        fi
+    # Use the comprehensive validation functions from validation.sh
+    if validate_container "$engine" "$image_tag" "$container_type"; then
+        log_success "Full validation passed"
+        return 0
     else
-        log_error "Full validation script not found"
+        log_error "Full validation failed"
         return 1
     fi
 }
@@ -152,7 +97,7 @@ full_validate_image() {
 if [ -z "${CONTAINER_ENGINE:-}" ]; then
     CONTAINER_ENGINE=$(detect_container_engine)
 fi
-REGISTRY="localhost:5000"
+REGISTRY=$(get_config_value "REGISTRY" "$DEFAULT_REGISTRY")
 
 show_usage() {
     cat << EOF

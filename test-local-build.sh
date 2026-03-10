@@ -6,24 +6,27 @@ set -euo pipefail  # Exit on any error, undefined variables, and pipe failures
 
 # Source required libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/scripts/lib/config.sh"
 source "${SCRIPT_DIR}/scripts/lib/logging.sh"
 source "${SCRIPT_DIR}/scripts/lib/platform.sh"
 source "${SCRIPT_DIR}/scripts/lib/validation.sh"
 source "${SCRIPT_DIR}/scripts/lib/github-actions.sh"
+source "${SCRIPT_DIR}/scripts/lib/cleanup.sh"
+
+# Register cleanup handler for consistent resource management
+register_cleanup_handler
 
 # Configuration
-REGISTRY="localhost:5000"  # Local registry for testing
-BUILD_NCPUS=4
+REGISTRY=$(get_config_value "REGISTRY" "$DEFAULT_REGISTRY")
+BUILD_NCPUS=$(get_config_value "BUILD_NCPUS" "$DEFAULT_BUILD_NCPUS")
 PLATFORM=$(uname -m)
 
 # Auto-detect container engine if not specified
 CONTAINER_ENGINE=$(detect_container_engine || echo "podman")
 
-# Supported build types matching GitHub Actions
-VALID_CONTAINER_TYPES=("core" "full" "dev" "custom" "experiment")
-VALID_SST_VERSIONS=("14.0.0" "14.1.0" "15.0.0" "15.1.0")
-DEFAULT_SST_VERSION="15.0.0"
-DEFAULT_MPICH_VERSION="4.0.2"
+# Use centralized configuration values
+DEFAULT_SST_VERSION=$(get_config_value "SST_VERSION" "$DEFAULT_SST_VERSION")
+DEFAULT_MPICH_VERSION=$(get_config_value "MPICH_VERSION" "$DEFAULT_MPICH_VERSION")
 
 # Function to show usage
 show_usage() {

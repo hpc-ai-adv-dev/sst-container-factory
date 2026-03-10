@@ -12,19 +12,24 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
 
 # Source common libraries
+source "$LIB_DIR/config.sh"
 source "$LIB_DIR/logging.sh"
 source "$LIB_DIR/platform.sh"
 source "$LIB_DIR/validation.sh"
 source "$LIB_DIR/github-actions.sh"
+source "$LIB_DIR/cleanup.sh"
 
-# Default values
+# Register cleanup handler for consistent resource management
+register_cleanup_handler
+
+# Default values using centralized config
 EXPERIMENT_NAME=""
 BASE_IMAGE="sst-core:latest"
 IMAGE_PREFIX="ghcr.io/$(whoami)"
 TAG_SUFFIX="latest"
 BUILD_PLATFORMS="linux/amd64"
 NO_CACHE=false
-REGISTRY="ghcr.io/$(whoami)"
+REGISTRY=$(get_config_value "REGISTRY" "$DEFAULT_REGISTRY")
 VALIDATION_MODE="full"
 
 # Build args that will be passed to container engine

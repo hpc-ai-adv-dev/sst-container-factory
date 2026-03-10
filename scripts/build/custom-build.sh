@@ -6,16 +6,15 @@ set -euo pipefail
 
 # Source required libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/config.sh"
 source "${SCRIPT_DIR}/../lib/logging.sh"
 source "${SCRIPT_DIR}/../lib/platform.sh"
 source "${SCRIPT_DIR}/../lib/validation.sh"
 source "${SCRIPT_DIR}/../lib/github-actions.sh"
+source "${SCRIPT_DIR}/../lib/cleanup.sh"
 
-# Default configuration
-DEFAULT_REGISTRY="${REGISTRY:-localhost:5000}"
-DEFAULT_MPICH_VERSION="${MPICH_VERSION:-4.0.2}"
-DEFAULT_BUILD_NCPUS="${BUILD_NCPUS:-4}"
-DEFAULT_SST_CORE_REPO="https://github.com/sstsimulator/sst-core.git"
+# Register cleanup handler for consistent resource management
+register_cleanup_handler
 
 show_usage() {
     cat << EOF

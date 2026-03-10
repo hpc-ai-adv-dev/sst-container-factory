@@ -7,6 +7,17 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Source common libraries for consistent functionality
+source "${SCRIPT_DIR}/scripts/lib/config.sh"
+source "${SCRIPT_DIR}/scripts/lib/logging.sh"
+source "${SCRIPT_DIR}/scripts/lib/platform.sh"
+source "${SCRIPT_DIR}/scripts/lib/validation.sh"
+source "${SCRIPT_DIR}/scripts/lib/github-actions.sh"
+source "${SCRIPT_DIR}/scripts/lib/cleanup.sh"
+
+# Register cleanup handler for consistent resource management
+register_cleanup_handler
+
 show_usage() {
     cat << EOF
 Container Testing Workflow Script
