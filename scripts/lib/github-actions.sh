@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 # Detect if running in GitHub Actions
 is_github_actions() {
     [[ "${GITHUB_ACTIONS:-}" == "true" ]]

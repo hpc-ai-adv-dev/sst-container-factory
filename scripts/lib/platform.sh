@@ -4,9 +4,11 @@
 
 set -euo pipefail
 
-# Source logging functions
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/logging.sh"
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+source "${SCRIPT_LIB_DIR}/logging.sh"
 
 # Detect the current platform architecture
 detect_platform() {
@@ -177,22 +179,40 @@ detect_container_engine() {
         fi
     fi
 
-    # Auto-detect available engines (prefer podman on some systems)
-    if command -v podman &> /dev/null; then
-        log_debug "Detected podman"
-        echo "podman"
-        return 0
-    elif command -v docker &> /dev/null; then
-        log_debug "Detected docker"
-        echo "docker"
-        return 0
+    # Auto-detect available engines (prefer docker on macOS, podman on Linux)
+    local platform
+    platform=$(uname -s)
+
+    if [[ "$platform" == "Darwin" ]]; then
+        # macOS: prefer Docker
+        if command -v docker &> /dev/null; then
+            log_debug "Detected docker on macOS"
+            echo "docker"
+            return 0
+        elif command -v podman &> /dev/null; then
+            log_debug "Detected podman on macOS"
+            echo "podman"
+            return 0
+        fi
     else
-        log_error "No container engine found"
-        log_error "Please install Docker or Podman:"
-        log_error "  Docker: https://docs.docker.com/get-docker/"
-        log_error "  Podman: https://podman.io/getting-started/installation"
-        return 1
+        # Linux: prefer Podman
+        if command -v podman &> /dev/null; then
+            log_debug "Detected podman on Linux"
+            echo "podman"
+            return 0
+        elif command -v docker &> /dev/null; then
+            log_debug "Detected docker on Linux"
+            echo "docker"
+            return 0
+        fi
     fi
+
+    # If no container engine found, show error
+    log_error "No container engine found"
+    log_error "Please install Docker or Podman:"
+    log_error "  Docker: https://docs.docker.com/get-docker/"
+    log_error "  Podman: https://podman.io/getting-started/installation"
+    return 1
 }
 
 # Check container engine functionality

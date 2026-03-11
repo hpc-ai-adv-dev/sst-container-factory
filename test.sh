@@ -35,7 +35,6 @@ COMMANDS:
   clean              Clean up all test artifacts and images
   download VERSION   Download source tarballs for specified version
   setup              Set up local testing environment
-  benchmark          Run build performance benchmark
   help               Show this help message
 
 OPTIONS:
@@ -60,7 +59,6 @@ EXAMPLES:
   $0 validate localhost:5000/sst-full:15.0.0-amd64 full  # Full validation
   $0 validate localhost:5000/sst-dev:15.0.0-amd64 no-exec # No-exec validation
   $0 download 15.1.0                    # Download tarballs for SST 15.1.0
-  $0 benchmark                          # Run performance benchmark
   $0 clean                              # Clean up everything
 
 EOF
@@ -74,7 +72,9 @@ REF=""
 EXPERIMENT_NAME=""
 BASE_IMAGE=""
 EXTRA_ARGS=()
+REMAINING_ARGS=()
 CONTAINER_ENGINE_OVERRIDE=""
+CONTAINER_ENGINE=""
 COMMAND=""
 
 # First pass: collect all arguments
@@ -123,7 +123,7 @@ while [[ $# -gt 0 ]]; do
             show_usage
             exit 0
             ;;
-        test-all|test-core|test-full|test-dev|test-custom|test-experiment|validate|clean|download|setup|benchmark)
+        test-all|test-core|test-full|test-dev|test-custom|test-experiment|validate|clean|download|setup)
             if [ -z "$COMMAND" ]; then
                 COMMAND="$1"
             fi
@@ -143,7 +143,7 @@ REMAINING_ARGS=("${ALL_ARGS[@]}")
 FILTERED_REMAINING_ARGS=()
 for arg in "${REMAINING_ARGS[@]}"; do
     case "$arg" in
-        --version|--mpich|--repo|--ref|--experiment-name|--base-image|--docker|--podman|--no-cache|--cleanup|help|--help|-h|test-all|test-core|test-full|test-dev|test-custom|test-experiment|validate|clean|download|setup|benchmark)
+        --version|--mpich|--repo|--ref|--experiment-name|--base-image|--docker|--podman|--no-cache|--cleanup|help|--help|-h|test-all|test-core|test-full|test-dev|test-custom|test-experiment|validate|clean|download|setup)
             # Skip options and command
             ;;
         *)
@@ -152,7 +152,7 @@ for arg in "${REMAINING_ARGS[@]}"; do
             ;;
     esac
 done
-REMAINING_ARGS=("${FILTERED_REMAINING_ARGS[@]}")
+REMAINING_ARGS=("${FILTERED_REMAINING_ARGS[@]:-}")
 
 if [ -z "$COMMAND" ]; then
     show_usage
@@ -170,23 +170,23 @@ case "$COMMAND" in
 
         echo "Testing core build..."
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
         fi
 
         echo "Testing full build..."
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
         fi
 
         echo "Testing dev build..."
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --mpich-version "$MPICH_VERSION" dev
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --mpich-version "$MPICH_VERSION" dev
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
         fi
 
         echo "[PASS] All tests completed successfully"
@@ -195,27 +195,27 @@ case "$COMMAND" in
     "test-core")
         echo "=== Testing SST-Core Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
         fi
         ;;
 
     "test-full")
         echo "=== Testing SST-Full Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
         fi
         ;;
 
     "test-dev")
         echo "=== Testing Development Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh "${EXTRA_ARGS[@]}" --mpich-version "$MPICH_VERSION" dev
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
         else
-            ./test-local-build.sh "${EXTRA_ARGS[@]}" --mpich-version "$MPICH_VERSION" dev
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
         fi
         ;;
 
@@ -243,10 +243,10 @@ case "$COMMAND" in
         fi
 
         # Add extra args (like --no-cache, --cleanup)
-        if [[ "${EXTRA_ARGS[*]}" =~ --no-cache ]]; then
+        if [[ "${EXTRA_ARGS[*]:-}" =~ --no-cache ]]; then
             CUSTOM_BUILD_ARGS+=(--no-cache)
         fi
-        if [[ "${EXTRA_ARGS[*]}" =~ --cleanup ]]; then
+        if [[ "${EXTRA_ARGS[*]:-}" =~ --cleanup ]]; then
             CUSTOM_BUILD_ARGS+=(--cleanup)
         fi
 
@@ -283,7 +283,7 @@ case "$COMMAND" in
         fi
 
         # Add extra args (like --no-cache, --cleanup)
-        if [[ "${EXTRA_ARGS[*]}" =~ --no-cache ]]; then
+        if [[ "${EXTRA_ARGS[*]:-}" =~ --no-cache ]]; then
             EXPERIMENT_BUILD_ARGS+=(--no-cache)
         fi
 
@@ -351,7 +351,7 @@ case "$COMMAND" in
         echo "SST Version: $VERSION"
         echo "MPICH Version: $MPICH_VERSION"
         cd Containerfiles
-        ./download_tarballs.sh "$VERSION" "$MPICH_VERSION"
+        ../scripts/sources/download_tarballs.sh --sst-core-version "$VERSION" --mpich-version "$MPICH_VERSION"
         cd ..
         echo "[PASS] Downloads completed"
         ;;
@@ -397,7 +397,7 @@ case "$COMMAND" in
         # Download default sources
         echo "Downloading default source tarballs..."
         cd Containerfiles
-        ./download_tarballs.sh "$VERSION" "$MPICH_VERSION"
+        ../scripts/sources/download_tarballs.sh --sst-core-version "$VERSION" --mpich-version "$MPICH_VERSION"
         cd ..
 
         echo "[PASS] Setup completed"
@@ -405,66 +405,6 @@ case "$COMMAND" in
         echo "Next steps:"
         echo "  $0 test-core           # Test basic core build"
         echo "  $0 test-all            # Run full test suite"
-        ;;
-
-    "benchmark")
-        echo "=== Running Build Performance Benchmark ==="
-        echo "This will build without cache to get accurate timing..."
-
-        # Set container engine if overridden
-        if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            DOCKER_CMD="$CONTAINER_ENGINE_OVERRIDE"
-        elif [ -n "${CONTAINER_ENGINE}" ]; then
-            DOCKER_CMD="${CONTAINER_ENGINE}"
-        else
-            # Auto-detect
-            if command -v podman &> /dev/null; then
-                DOCKER_CMD="podman"
-            elif command -v docker &> /dev/null; then
-                DOCKER_CMD="docker"
-            else
-                echo "ERROR: No container engine found"
-                exit 1
-            fi
-        fi
-
-        start_time=$(date +%s)
-
-        if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh --no-cache --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
-        else
-            ./test-local-build.sh --no-cache --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
-        fi
-
-        end_time=$(date +%s)
-        duration=$((end_time - start_time))
-
-        # Get image info if it exists
-        IMAGE_TAG="localhost:5000/sst-core:${VERSION}-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
-        if $DOCKER_CMD image inspect "$IMAGE_TAG" &> /dev/null; then
-            image_size_bytes=$($DOCKER_CMD image inspect "$IMAGE_TAG" --format='{{.Size}}')
-            image_size_mb=$((image_size_bytes / 1024 / 1024))
-        else
-            image_size_mb="unknown"
-        fi
-
-        echo ""
-        echo "=== BENCHMARK RESULTS ==="
-        echo "Date: $(date)"
-        echo "Build Duration: ${duration}s"
-        echo "Image Size: ${image_size_mb}MB"
-        echo "SST Version: $VERSION"
-        echo "MPICH Version: $MPICH_VERSION"
-        echo "Architecture: $(uname -m)"
-        echo "Container Engine: $DOCKER_CMD"
-
-        # Save results
-        {
-            echo "$(date +%s),$(date),$duration,$image_size_mb,$VERSION,$MPICH_VERSION,$(uname -m),$DOCKER_CMD"
-        } >> benchmark_results.csv
-
-        echo ""
-        echo "Results saved to benchmark_results.csv"
         ;;
 
     *)

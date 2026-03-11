@@ -4,9 +4,11 @@
 
 set -euo pipefail
 
-# Source required libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/logging.sh"
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+source "${SCRIPT_LIB_DIR}/logging.sh"
 
 # Track resources for cleanup
 declare -a CLEANUP_CONTAINERS=()

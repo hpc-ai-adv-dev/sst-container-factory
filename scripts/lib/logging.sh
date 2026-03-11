@@ -4,9 +4,11 @@
 
 set -euo pipefail
 
-# Source GitHub Actions functions
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/github-actions.sh"
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+source "${SCRIPT_LIB_DIR}/github-actions.sh"
 
 # Colors for local output
 RED='\033[0;31m'
