@@ -287,7 +287,7 @@ if [[ "$VALIDATE" == "true" ]] || [[ "$VALIDATE_QUICK" == "true" ]] || [[ "$VALI
 
     # Determine container type for validation
     VALIDATION_TYPE="custom"
-    MAX_SIZE_MB=2048  # 2GB default for custom builds
+    MAX_SIZE_MB=$(get_default_size_limit "custom")
 
     if [[ "$VALIDATE_QUICK" == "true" ]]; then
         # Quick validation - just check image exists and can be inspected

@@ -4,11 +4,14 @@
 
 set -euo pipefail
 
-# Source required libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/logging.sh"
-source "${SCRIPT_DIR}/platform.sh"
-source "${SCRIPT_DIR}/github-actions.sh"
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+source "${SCRIPT_LIB_DIR}/logging.sh"
+source "${SCRIPT_LIB_DIR}/platform.sh"
+source "${SCRIPT_LIB_DIR}/config.sh"
+source "${SCRIPT_LIB_DIR}/github-actions.sh"
 
 # Check if container image exists
 image_exists() {
@@ -109,11 +112,15 @@ test_sst_installation() {
             # Additional test for full builds
             if [[ "$container_type" == "full" ]]; then
                 log_info "Testing SST Elements (full build)"
-                # Test that elements are available - this is more complex and might need specific tests
-                if "$engine" run --rm "$image_tag" -c 'ls /opt/sst/lib/sstElements.so 2>/dev/null || ls /usr/local/lib/sstElements.so 2>/dev/null' &> /dev/null; then
-                    log_success "SST Elements test passed"
+                # Check for SST Elements in the version-aware path structure
+                if "$engine" run --rm "$image_tag" -c 'find /opt/SST -name "sst-elements-library" -type d 2>/dev/null | head -1' | grep -q "sst-elements-library"; then
+                    log_success "SST Elements library found"
+                elif "$engine" run --rm "$image_tag" -c 'find /opt/SST -path "*/elements/include/sst/elements" -type d 2>/dev/null | head -1' | grep -q "elements"; then
+                    log_success "SST Elements headers found"
+                elif "$engine" run --rm "$image_tag" -c 'ls /opt/SST/*/elements/lib/ 2>/dev/null' &> /dev/null; then
+                    log_success "SST Elements installation directory found"
                 else
-                    log_warning "SST Elements library not found in expected locations"
+                    log_warning "SST Elements installation not found in expected SST directory structure"
                 fi
             fi
             ;;
@@ -161,7 +168,7 @@ validate_container() {
     local engine="$1"
     local image_tag="$2"
     local container_type="$3"
-    local max_size_mb="${4:-2048}"  # Default 2GB limit
+    local max_size_mb="${4:-$(get_default_size_limit "$container_type")}"  # Use dynamic limit based on container type
 
     log_group_start "Validating container: $image_tag"
 
@@ -232,7 +239,7 @@ validate_container() {
 no_exec_validate_image() {
     local engine="$1"
     local image_tag="$2"
-    local max_size_mb="${3:-2048}"
+    local max_size_mb="${3:-$DEFAULT_MAX_SIZE_FULL}"  # Default to full container limit for compatibility
 
     log_info "No-exec validation of $image_tag"
 

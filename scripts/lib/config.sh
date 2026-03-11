@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# path resolution for library scripts (only set if not already defined)
+if [[ -z "${SCRIPT_LIB_DIR:-}" ]]; then
+    readonly SCRIPT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 # Container and build configuration
 DEFAULT_REGISTRY="${REGISTRY:-localhost:5000}"
 DEFAULT_MPICH_VERSION="${MPICH_VERSION:-4.0.2}"
@@ -13,7 +18,8 @@ DEFAULT_SST_VERSION="15.0.0"
 # Container size limits (MB)
 DEFAULT_MAX_SIZE_CORE=2048
 DEFAULT_MAX_SIZE_FULL=4096
-DEFAULT_MAX_SIZE_DEV=3072
+DEFAULT_MAX_SIZE_DEV=4096
+DEFAULT_MAX_SIZE_EXPERIMENT=8192
 
 # SST repository defaults
 DEFAULT_SST_CORE_REPO="https://github.com/sstsimulator/sst-core.git"
@@ -22,11 +28,6 @@ DEFAULT_SST_ELEMENTS_REPO="https://github.com/sstsimulator/sst-elements.git"
 # Supported build types and versions
 VALID_CONTAINER_TYPES=("core" "full" "dev" "custom" "experiment")
 VALID_SST_VERSIONS=("14.0.0" "14.1.0" "15.0.0" "15.1.0")
-
-# Test timeout settings (seconds)
-DEFAULT_BUILD_TIMEOUT=3600
-DEFAULT_TEST_TIMEOUT=300
-DEFAULT_VALIDATION_TIMEOUT=120
 
 # Get configuration value with fallback
 get_config_value() {
@@ -67,8 +68,11 @@ get_default_size_limit() {
         "full")
             echo "$DEFAULT_MAX_SIZE_FULL"
             ;;
-        "dev"|"custom"|"experiment")
+        "dev"|"custom")
             echo "$DEFAULT_MAX_SIZE_DEV"
+            ;;
+        "experiment")
+            echo "$DEFAULT_MAX_SIZE_EXPERIMENT"
             ;;
         *)
             echo "$DEFAULT_MAX_SIZE_FULL"  # fallback

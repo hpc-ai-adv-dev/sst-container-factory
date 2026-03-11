@@ -342,8 +342,8 @@ main() {
     if [ "$VALIDATION_MODE" != "no-exec" ]; then
         log_info "Running container validation..."
 
-        # Set appropriate size limit for experiments (8GB like in GitHub Actions)
-        local max_size_mb=8192
+        # Set appropriate size limit for experiments
+        local max_size_mb=$(get_default_size_limit "experiment")
 
         case "$VALIDATION_MODE" in
             "quick")
