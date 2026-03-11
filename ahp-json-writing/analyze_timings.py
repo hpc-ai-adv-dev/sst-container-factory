@@ -8,13 +8,20 @@ Extracts timing information from generated files and creates comparison plots.
 import os
 import json
 import re
+import argparse
 from pathlib import Path
 from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Configuration
-OUTPUT_DIR = Path("output")
+# ---------------------------------------------------------------------------
+# Experiment definitions — keep in sync with run_simulation.sh
+# ---------------------------------------------------------------------------
+SIMPLE_HEIGHTS = [256]
+SIMPLE_WIDTHS = [256]
+
+COMPLEX_HEIGHTS = [4096, 16384, 65536]
+COMPLEX_WIDTHS = [256, 1024, 4096]
 
 
 def parse_directory_name(dirname):
@@ -80,16 +87,22 @@ def extract_max_build_time(filepath):
     return None
 
 
-def collect_timing_data():
-    """Collect all timing data from output directory."""
+def collect_timing_data(heights, widths):
+    """Collect timing data from output/, filtered to the given heights and widths."""
+    output_dir = Path("output")
     data = defaultdict(lambda: defaultdict(list))
     
-    for subdir in sorted(OUTPUT_DIR.iterdir()):
+    for subdir in sorted(output_dir.iterdir()):
         if not subdir.is_dir():
             continue
         
         dirname = subdir.name
         params = parse_directory_name(dirname)
+        if not params:
+            continue
+        
+        if params['height'] not in heights or params['width'] not in widths:
+            continue
         if not params:
             continue
         
@@ -232,16 +245,14 @@ def organize_by_height_width(stats):
     return organized
 
 
-def plot_generation_timings(stats):
+def plot_generation_timings(stats, output_file='generation_timings_combined.png'):
     """Create comparison plots for generation timings for each height×width configuration."""
     organized = organize_by_height_width(stats)
     
-    # Node markers (same for both With SST and Without SST)
-    node_markers = {
-        4: 'o',   # circles
-        8: 's',   # squares
-        16: '^',  # triangles
-    }
+    # Dynamically assign markers based on node counts found in data
+    all_nodes = sorted(set(config[3] for config in stats.keys()))
+    marker_list = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*']
+    node_markers = {n: marker_list[i % len(marker_list)] for i, n in enumerate(all_nodes)}
     
     # Colors for With SST (blue) and Without SST (orange)
     sst_color = 'blue'
@@ -397,8 +408,8 @@ def plot_generation_timings(stats):
                bbox_to_anchor=(0.5, -0.02), frameon=True)
     
     plt.tight_layout(rect=[0, 0.05, 1, 0.96])
-    plt.savefig('generation_timings_combined.png', dpi=300, bbox_inches='tight')
-    print(f"Saved: generation_timings_combined.png")
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Saved: {output_file}")
     plt.close()
 
 
@@ -430,8 +441,29 @@ def print_summary(stats):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description='Analyze timing data from PHOLD benchmark experiments.'
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        '--simple', action='store_true',
+        help='Analyze SIMPLE results (256x256) and save simple.png'
+    )
+    group.add_argument(
+        '--complex', action='store_true',
+        help='Analyze COMPLEX results (full parameter sweep) and save complex.png'
+    )
+    args = parser.parse_args()
+
+    if args.simple:
+        heights, widths = SIMPLE_HEIGHTS, SIMPLE_WIDTHS
+        output_file = 'simple.png'
+    else:
+        heights, widths = COMPLEX_HEIGHTS, COMPLEX_WIDTHS
+        output_file = 'complex.png'
+
     print("Collecting timing data...")
-    data = collect_timing_data()
+    data = collect_timing_data(heights, widths)
     
     if not data:
         print("No timing data found in output directory!")
@@ -444,7 +476,7 @@ def main():
     print_summary(stats)
     
     print("\nGenerating figures...")
-    plot_generation_timings(stats)
+    plot_generation_timings(stats, output_file)
     
     print("\nDone!")
 
