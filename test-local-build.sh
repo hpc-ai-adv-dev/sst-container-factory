@@ -54,9 +54,10 @@ OPTIONS:
   --sst-elements-ref REF    SST-elements git reference (for custom/dev builds)
   --experiment-name NAME    Experiment name (for experiment builds)
   --base-image IMAGE        Base image (for experiment builds)
+  --enable-perf-tracking    Enable SST performance tracking (impacts performance)
   --no-cache               Build without using cache
   --validate-only          Only validate existing images, don't build
-  --cleanup                Clean up after successful build
+  --cleanup                Clean up built images after successful testing (default: preserve images)
   --registry URL           Registry to use (default: $REGISTRY)
   --docker                 Use docker container engine
   --podman                 Use podman container engine
@@ -69,6 +70,9 @@ EXAMPLES:
   # Test full build with specific SST version
   $0 --sst-version 15.1.0 full
 
+  # Test core build with performance tracking enabled
+  $0 --enable-perf-tracking core
+
   # Test custom build from GitHub main branch
   $0 --sst-core-repo https://github.com/sstsimulator/sst-core.git \\
      --sst-core-ref main \\
@@ -76,11 +80,18 @@ EXAMPLES:
      --sst-elements-ref main \\
      custom
 
+  # Test custom build with performance tracking
+  $0 --sst-core-repo https://github.com/sstsimulator/sst-core.git \\
+     --sst-core-ref main --enable-perf-tracking custom
+
   # Test dev build (no cache, cleanup after)
   $0 --no-cache --cleanup dev
 
   # Validate existing images
   $0 --validate-only core
+
+  # Preserve image for repeated testing (default behavior)
+  $0 --sst-version 15.1.0 core
 
 ENVIRONMENT VARIABLES:
   CONTAINER_ENGINE    Container engine to use (podman/docker)
@@ -99,6 +110,7 @@ SST_ELEMENTS_REPO=""
 SST_ELEMENTS_REF=""
 EXPERIMENT_NAME=""
 BASE_IMAGE=""
+ENABLE_PERF_TRACKING=false
 NO_CACHE=false
 VALIDATE_ONLY=false
 CLEANUP=false
@@ -136,6 +148,10 @@ while [[ $# -gt 0 ]]; do
         --base-image)
             BASE_IMAGE="$2"
             shift 2
+            ;;
+        --enable-perf-tracking)
+            ENABLE_PERF_TRACKING=true
+            shift
             ;;
         --registry)
             REGISTRY="$2"
@@ -289,7 +305,11 @@ build_container() {
         "core")
             containerfile="Containerfiles/Containerfile"
             build_target="sst-core"
-            tag_name="${REGISTRY}/sst-core:${SST_VERSION}-${ARCH}"
+            if [ "$ENABLE_PERF_TRACKING" = true ]; then
+                tag_name="${REGISTRY}/sst-perf-track-core:${SST_VERSION}-${ARCH}"
+            else
+                tag_name="${REGISTRY}/sst-core:${SST_VERSION}-${ARCH}"
+            fi
             build_args+=(
                 "--build-arg" "SSTver=${SST_VERSION}"
                 "--build-arg" "mpich=${MPICH_VERSION}"
@@ -299,7 +319,11 @@ build_container() {
         "full")
             containerfile="Containerfiles/Containerfile"
             build_target="sst-full"
-            tag_name="${REGISTRY}/sst-full:${SST_VERSION}-${ARCH}"
+            if [ "$ENABLE_PERF_TRACKING" = true ]; then
+                tag_name="${REGISTRY}/sst-perf-track-full:${SST_VERSION}-${ARCH}"
+            else
+                tag_name="${REGISTRY}/sst-full:${SST_VERSION}-${ARCH}"
+            fi
             build_args+=(
                 "--build-arg" "SSTver=${SST_VERSION}"
                 "--build-arg" "mpich=${MPICH_VERSION}"
@@ -327,14 +351,22 @@ build_container() {
 
             if [ -n "$SST_ELEMENTS_REPO" ]; then
                 build_target="full-build"
-                tag_name="${REGISTRY}/sst-custom:${SST_CORE_REF}-full-${ARCH}"
+                if [ "$ENABLE_PERF_TRACKING" = true ]; then
+                    tag_name="${REGISTRY}/sst-perf-track-custom:${SST_CORE_REF}-full-${ARCH}"
+                else
+                    tag_name="${REGISTRY}/sst-custom:${SST_CORE_REF}-full-${ARCH}"
+                fi
                 build_args+=(
                     "--build-arg" "SSTElementsRepo=${SST_ELEMENTS_REPO}"
                     "--build-arg" "elementsTag=${SST_ELEMENTS_REF:-main}"
                 )
             else
                 build_target="core-build"
-                tag_name="${REGISTRY}/sst-custom:${SST_CORE_REF}-${ARCH}"
+                if [ "$ENABLE_PERF_TRACKING" = true ]; then
+                    tag_name="${REGISTRY}/sst-perf-track-custom:${SST_CORE_REF}-${ARCH}"
+                else
+                    tag_name="${REGISTRY}/sst-custom:${SST_CORE_REF}-${ARCH}"
+                fi
             fi
 
             build_args+=(
@@ -356,6 +388,11 @@ build_container() {
             fi
             ;;
     esac
+
+    # Add perf tracking build argument if enabled (only for core, full, custom)
+    if [ "$ENABLE_PERF_TRACKING" = true ] && [[ "$CONTAINER_TYPE" =~ ^(core|full|custom)$ ]]; then
+        build_args+=("--build-arg" "ENABLE_PERF_TRACKING=1")
+    fi
 
     # Add no-cache flag if requested
     if [ "$NO_CACHE" = true ]; then
@@ -387,7 +424,7 @@ build_container() {
 
 # Function to validate built container
 validate_built_container() {
-    local tag_name="$1"
+    local tag_name="${1:-}"
     if [ -z "$tag_name" ] && [ -f ".last_built_image" ]; then
         tag_name=$(cat .last_built_image)
     fi
@@ -426,6 +463,13 @@ cleanup() {
     log_success "Cleanup completed"
 }
 
+# Function for error cleanup (removes temporary files but not images)
+error_cleanup() {
+    log_info "Error cleanup..."
+    # Only clean up temporary files on error, preserve built images
+    rm -f .last_built_image
+}
+
 # Function to run complete test sequence
 run_test_sequence() {
     log_info "Starting local build test sequence..."
@@ -451,13 +495,23 @@ run_test_sequence() {
     # Cleanup if requested
     if [ "$CLEANUP" = true ]; then
         cleanup
+    else
+        log_info "Image preserved. Use --cleanup to remove after testing."
+        if [ -f ".last_built_image" ]; then
+            local tag_name
+            tag_name=$(cat .last_built_image)
+            log_info "Built image: $tag_name"
+        fi
     fi
 
     log_success "Test sequence completed successfully!"
 }
 
-# Trap to cleanup on exit if something goes wrong
-trap cleanup EXIT
+# Trap for error cleanup (preserves images)
+trap error_cleanup EXIT
 
 # Run the test sequence
 run_test_sequence
+
+# Clear trap on successful completion
+trap - EXIT

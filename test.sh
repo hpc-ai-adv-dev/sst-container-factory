@@ -44,6 +44,7 @@ OPTIONS:
   --ref REF          SST repository reference (for custom builds)
   --experiment-name NAME  Experiment name (for experiment builds)
   --base-image IMAGE Base image (for experiment builds)
+  --enable-perf-tracking  Enable SST performance tracking (impacts performance)
   --no-cache         Build without using cache
   --cleanup          Clean up after successful build
   --docker           Use docker container engine
@@ -71,6 +72,7 @@ REPO=""
 REF=""
 EXPERIMENT_NAME=""
 BASE_IMAGE=""
+ENABLE_PERF_TRACKING="false"
 EXTRA_ARGS=()
 REMAINING_ARGS=()
 CONTAINER_ENGINE_OVERRIDE=""
@@ -106,6 +108,10 @@ while [[ $# -gt 0 ]]; do
         --base-image)
             BASE_IMAGE="$2"
             shift 2
+            ;;
+        --enable-perf-tracking)
+            ENABLE_PERF_TRACKING="true"
+            shift
             ;;
         --docker)
             CONTAINER_ENGINE_OVERRIDE="docker"
@@ -170,16 +176,16 @@ case "$COMMAND" in
 
         echo "Testing core build..."
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") core
         else
-            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") core
         fi
 
         echo "Testing full build..."
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") full
         else
-            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") full
         fi
 
         echo "Testing dev build..."
@@ -195,27 +201,27 @@ case "$COMMAND" in
     "test-core")
         echo "=== Testing SST-Core Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") core
         else
-            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" core
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") core
         fi
         ;;
 
     "test-full")
         echo "=== Testing SST-Full Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") full
         else
-            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" full
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --sst-version "$VERSION" --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") full
         fi
         ;;
 
     "test-dev")
         echo "=== Testing Development Build ==="
         if [ -n "$CONTAINER_ENGINE_OVERRIDE" ]; then
-            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
+            CONTAINER_ENGINE="$CONTAINER_ENGINE_OVERRIDE" ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") dev
         else
-            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" dev
+            ./test-local-build.sh ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} --mpich-version "$MPICH_VERSION" $([ "$ENABLE_PERF_TRACKING" = "true" ] && echo "--enable-perf-tracking") dev
         fi
         ;;
 
@@ -248,6 +254,11 @@ case "$COMMAND" in
         fi
         if [[ "${EXTRA_ARGS[*]:-}" =~ --cleanup ]]; then
             CUSTOM_BUILD_ARGS+=(--cleanup)
+        fi
+
+        # Add perf-tracking if enabled
+        if [ "$ENABLE_PERF_TRACKING" = "true" ]; then
+            CUSTOM_BUILD_ARGS+=(--enable-perf-tracking)
         fi
 
         # Execute the new modular custom build script
@@ -351,7 +362,7 @@ case "$COMMAND" in
         echo "SST Version: $VERSION"
         echo "MPICH Version: $MPICH_VERSION"
         cd Containerfiles
-        ../scripts/sources/download_tarballs.sh --sst-core-version "$VERSION" --mpich-version "$MPICH_VERSION"
+        ./download_tarballs.sh "$VERSION" "$MPICH_VERSION"
         cd ..
         echo "[PASS] Downloads completed"
         ;;
@@ -397,7 +408,7 @@ case "$COMMAND" in
         # Download default sources
         echo "Downloading default source tarballs..."
         cd Containerfiles
-        ../scripts/sources/download_tarballs.sh --sst-core-version "$VERSION" --mpich-version "$MPICH_VERSION"
+        ./download_tarballs.sh "$VERSION" "$MPICH_VERSION"
         cd ..
 
         echo "[PASS] Setup completed"

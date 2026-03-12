@@ -33,6 +33,7 @@ Optional Options:
   --elements-repo URL         SST-elements repository URL (for full build)
   --elements-ref REF          SST-elements branch, tag, or commit SHA
   --mpich-version VERSION     MPICH version to use (default: $DEFAULT_MPICH_VERSION)
+  --enable-perf-tracking      Enable SST performance tracking (impacts performance)
   --registry URL              Container registry (default: $DEFAULT_REGISTRY)
   --tag-suffix SUFFIX         Custom tag suffix (default: core ref name)
   --build-ncpus NUMBER        Number of CPU cores for build (default: $DEFAULT_BUILD_NCPUS)
@@ -54,6 +55,9 @@ Examples:
      --elements-repo https://github.com/custom/sst-elements.git \\
      --elements-ref develop
 
+  # Build with performance tracking enabled
+  $0 --core-ref main --enable-perf-tracking
+
   # Build with custom MPICH version
   $0 --core-ref feature-branch --mpich-version 4.1.0 --no-cache
 
@@ -69,6 +73,7 @@ MPICH_VERSION="$DEFAULT_MPICH_VERSION"
 REGISTRY="$DEFAULT_REGISTRY"
 TAG_SUFFIX=""
 BUILD_NCPUS="$DEFAULT_BUILD_NCPUS"
+ENABLE_PERF_TRACKING=false
 NO_CACHE=false
 VALIDATE=false
 VALIDATE_QUICK=false
@@ -99,6 +104,10 @@ while [[ $# -gt 0 ]]; do
         --mpich-version)
             MPICH_VERSION="$2"
             shift 2
+            ;;
+        --enable-perf-tracking)
+            ENABLE_PERF_TRACKING=true
+            shift
             ;;
         --registry)
             REGISTRY="$2"
@@ -215,7 +224,11 @@ fi
 
 # Generate final image tag
 ARCH=$(get_arch)
-IMAGE_TAG="${REGISTRY}/sst-custom:${TAG_SUFFIX}-${ARCH}"
+if [[ "$ENABLE_PERF_TRACKING" == "true" ]]; then
+    IMAGE_TAG="${REGISTRY}/sst-perf-track-custom:${TAG_SUFFIX}-${ARCH}"
+else
+    IMAGE_TAG="${REGISTRY}/sst-custom:${TAG_SUFFIX}-${ARCH}"
+fi
 
 log_group_start "Custom SST Container Build"
 log_info "Build Configuration:"
@@ -226,6 +239,7 @@ if [[ -n "$SST_ELEMENTS_REPO" ]]; then
     log_info "  SST Elements Reference: $SST_ELEMENTS_REF"
 fi
 log_info "  MPICH Version: $MPICH_VERSION"
+log_info "  Performance Tracking: $ENABLE_PERF_TRACKING"
 log_info "  Build Type: $BUILD_TYPE"
 log_info "  Target Platform: $TARGET_PLATFORM"
 log_info "  Container Engine: $CONTAINER_ENGINE"
@@ -250,6 +264,11 @@ if [[ "$BUILD_TYPE" == "full-build" ]]; then
         "--build-arg" "SSTElementsRepo=${SST_ELEMENTS_REPO}"
         "--build-arg" "elementsTag=${SST_ELEMENTS_REF}"
     )
+fi
+
+# Add perf tracking build argument if enabled
+if [[ "$ENABLE_PERF_TRACKING" == "true" ]]; then
+    build_args+=("--build-arg" "ENABLE_PERF_TRACKING=1")
 fi
 
 # Add cache control
