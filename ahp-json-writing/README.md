@@ -5,7 +5,7 @@ generally uses [ahp_graph](https://github.com/alvaradoo/ahp_graph).
 
 ## What It Builds
 
-The container is based on `ghcr.io/hpc-ai-adv-dev/sst-core:master-latest` and
+The container is based on `ghcr.io/hpc-ai-adv-dev/sst-core:15.1.2` and
 adds:
 
 - Build tools (`autoconf`, `cmake`, `libtool`)
