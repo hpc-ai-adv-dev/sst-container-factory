@@ -1,6 +1,6 @@
-# AHP JSON Writing Container Build
+# AHP GraphContainer Build
 
-This directory contains the `Containerfile` for building a container that uses [ahp_graph](https://github.com/alvaradoo/ahp_graph). Primary developed for the JSON writing experiment found at https://github.com/hpc-ai-adv-dev/sst-experiment-ahp-json-writing. 
+This directory contains the `Containerfile` for building a container that uses [ahp_graph](https://github.com/alvaradoo/ahp_graph). Firstly developed for the JSON writing experiment found at https://github.com/hpc-ai-adv-dev/sst-experiment-ahp-json-writing but is to serve as a general AHP Graph container.
 
 ## What It Builds
 
