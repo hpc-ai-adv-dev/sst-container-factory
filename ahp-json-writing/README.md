@@ -1,4 +1,4 @@
-# AHP Graph — Container Build
+# AHP JSON Writing Container Build
 
 This directory contains the `Containerfile` for building a container that
 generally uses [ahp_graph](https://github.com/alvaradoo/ahp_graph).
