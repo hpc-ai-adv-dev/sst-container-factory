@@ -25,7 +25,7 @@
 #   --build-arg NCPUS=4 \
 #   --target sst-full \
 #   -f Containerfile \
-#   -t sst-full:15.1.1 \
+#   -t sst-full:15.1.0 \
 #   .
 #
 # # Build core-only SST container
