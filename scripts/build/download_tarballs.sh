@@ -2,46 +2,81 @@
 # Download script for SST container build sources
 # Downloads MPICH, SST-core, and SST-elements source archives
 
-set -e  # Exit on any error
+set -euo pipefail
 
-# Default versions
-DEFAULT_SST_VERSION="15.0.0"
-DEFAULT_MPICH_VERSION="4.0.2"
-
-# Parse command line arguments
-SST_VERSION="${1:-$DEFAULT_SST_VERSION}"
-MPICH_VERSION="${2:-$DEFAULT_MPICH_VERSION}"
-
-# Validate SST version (check against known valid versions)
-VALID_SST_VERSIONS=("14.0.0" "14.1.0" "15.0.0" "15.1.0")
-if [[ ! " ${VALID_SST_VERSIONS[@]} " =~ " ${SST_VERSION} " ]]; then
-    echo "Warning: SST version ${SST_VERSION} may not be valid."
-    echo "Known valid versions: ${VALID_SST_VERSIONS[*]}"
-    echo "Continuing anyway..."
-fi
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/config.sh"
+source "${SCRIPT_DIR}/../lib/logging.sh"
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [SST_VERSION] [MPICH_VERSION]"
+    echo "Usage: $0 [OPTIONS] [SST_VERSION] [MPICH_VERSION]"
     echo ""
     echo "Downloads source archives for SST container builds"
     echo ""
+    echo "Options:"
+    echo "  --force, -f        Skip version validation warnings (for automation)"
+    echo "  --help, -h         Show this help"
+    echo ""
     echo "Arguments:"
-    echo "  SST_VERSION    SST version to download (default: $DEFAULT_SST_VERSION)"
-    echo "                 Valid versions: ${VALID_SST_VERSIONS[*]}"
-    echo "  MPICH_VERSION  MPICH version to download (default: $DEFAULT_MPICH_VERSION)"
+    echo "  SST_VERSION        SST version to download (default: $DEFAULT_SST_VERSION)"
+    echo "  MPICH_VERSION      MPICH version to download (default: $DEFAULT_MPICH_VERSION)"
     echo ""
     echo "Examples:"
     echo "  $0                           # Download defaults (SST $DEFAULT_SST_VERSION, MPICH $DEFAULT_MPICH_VERSION)"
     echo "  $0 15.0.0                    # Download SST 15.0.0, MPICH $DEFAULT_MPICH_VERSION"
     echo "  $0 15.0.0 4.1.1             # Download SST 15.0.0, MPICH 4.1.1"
+    echo "  $0 --force 15.1.2            # Download SST 15.1.2 without version warnings"
     echo "  $0 --help                    # Show this help"
 }
 
-# Check for help flag
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    show_usage
-    exit 0
+# Parse command line arguments
+FORCE_MODE=false
+SST_VERSION=""
+MPICH_VERSION=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force|-f)
+            FORCE_MODE=true
+            shift
+            ;;
+        --help|-h)
+            show_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option $1"
+            show_usage
+            exit 1
+            ;;
+        *)
+            if [[ -z "$SST_VERSION" ]]; then
+                SST_VERSION="$1"
+            elif [[ -z "$MPICH_VERSION" ]]; then
+                MPICH_VERSION="$1"
+            else
+                echo "Error: Too many arguments"
+                show_usage
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Set defaults if not provided
+SST_VERSION="${SST_VERSION:-$DEFAULT_SST_VERSION}"
+MPICH_VERSION="${MPICH_VERSION:-$DEFAULT_MPICH_VERSION}"
+
+# Validate SST version (unless force mode is enabled)
+if [[ "$FORCE_MODE" != "true" ]]; then
+    if [[ ! " ${VALID_SST_VERSIONS[@]} " =~ " ${SST_VERSION} " ]]; then
+        log_warning "SST version ${SST_VERSION} may not be valid."
+        log_warning "Known valid versions: ${VALID_SST_VERSIONS[*]}"
+        log_warning "Continuing anyway... (use --force to suppress this warning)"
+    fi
 fi
 
 echo "=================================================="
