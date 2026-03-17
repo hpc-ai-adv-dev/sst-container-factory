@@ -11,6 +11,7 @@ SST_CORE_REPO=""
 SST_CORE_REF=""
 SST_ELEMENTS_REPO=""
 SST_ELEMENTS_REF=""
+SST_ELEMENTS_VERSION=""
 EXPERIMENT_NAME=""
 BASE_IMAGE=""
 ENABLE_PERF_TRACKING="false"
@@ -51,6 +52,7 @@ init_argument_defaults() {
     SST_CORE_REPO="${DEFAULT_SST_CORE_REPO:-https://github.com/sstsimulator/sst-core.git}"
     SST_ELEMENTS_REPO=""
     SST_ELEMENTS_REF=""
+    SST_ELEMENTS_VERSION=""
     REGISTRY="${DEFAULT_REGISTRY:-localhost:5000}"
     BUILD_NCPUS="${DEFAULT_BUILD_NCPUS:-4}"
     CONTAINER_ENGINE=""
@@ -111,6 +113,10 @@ parse_simple_arguments() {
                 ;;
             --elements-ref|--sst-elements-ref)
                 SST_ELEMENTS_REF="$2"
+                shift 2
+                ;;
+            --elements-version|--sst-elements-version)
+                SST_ELEMENTS_VERSION="$2"
                 shift 2
                 ;;
             --experiment-name)
@@ -225,6 +231,7 @@ show_simple_help() {
     echo "  --core-ref REF            SST-core git reference (branch/tag/commit)"
     echo "  --elements-repo URL       SST-elements repository URL"
     echo "  --elements-ref REF        SST-elements git reference"
+    echo "  --elements-version VER    SST-elements release version override (for full release builds)"
     echo "  --experiment-name NAME    Experiment name for testing"
     echo "  --base-image IMAGE        Base image for experiment builds"
     echo "  --registry URL            Container registry (default: $REGISTRY)"
