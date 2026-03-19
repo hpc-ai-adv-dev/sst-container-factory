@@ -1,7 +1,7 @@
 # This Containerfile supports flexible SST and MPICH version building
 #
 # BUILD ARGUMENTS:
-#   SSTver: SST version to build (default: 15.1.2, valid: 14.0.0, 14.1.0, 15.0.0, 15.1.0, 15.1.2)
+#   SSTver: SST version to build (default: 15.1.2, valid: 14.0.0, 14.1.0, 15.0.0, 15.1.0, 15.1.1, 15.1.2)
 #   SST_ELEMENTS_VERSION: SST-elements version (default: same as SSTver)
 #   mpich:  MPICH version  (default: 4.0.2)
 #   NCPUS:  Parallel make jobs (default: 2)
@@ -25,7 +25,7 @@
 #   --build-arg NCPUS=4 \
 #   --target sst-full \
 #   -f Containerfile \
-#   -t sst-full:15.1.0 \
+#   -t sst-full:15.1.1 \
 #   .
 #
 # # Build core-only SST container
