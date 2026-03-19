@@ -129,7 +129,7 @@ RUN if [ -z "$NCPUS" ]; then \
         export NCPUS=$(($(nproc) / 2)); \
         if [ "$NCPUS" -lt 1 ]; then export NCPUS=1; fi; \
     fi && \
-    ./configure --prefix=/opt/SST/${SSTver}/elements --with-sst-core=/opt/SST/${SSTver} && \
+    ./configure --prefix=/opt/SST/elements-${SST_ELEMENTS_VERSION} --with-sst-core=/opt/SST/${SSTver} && \
     make -j$NCPUS all && \
     make install && \
     make clean && \
@@ -170,12 +170,14 @@ FROM runtime AS sst-full
 
 # Re-declare ARG for this stage
 ARG SSTver=15.1.2
+ARG SST_ELEMENTS_VERSION=$SSTver
 
 # Copy all of the installed SST directories
 COPY --from=elements-build /opt/SST/${SSTver} /opt/SST/${SSTver}
+COPY --from=elements-build /opt/SST/elements-${SST_ELEMENTS_VERSION} /opt/SST/elements-${SST_ELEMENTS_VERSION}
 
 ENV PATH="$PATH:/opt/SST/${SSTver}/bin/"
-ENV LD_LIBRARY_PATH="/opt/SST/${SSTver}/lib:/opt/SST/${SSTver}/elements/lib:$LD_LIBRARY_PATH"
+ENV LD_LIBRARY_PATH="/opt/SST/${SSTver}/lib:/opt/SST/elements-${SST_ELEMENTS_VERSION}/lib:$LD_LIBRARY_PATH"
 WORKDIR /workspace
 ENTRYPOINT ["/bin/bash"]
 
