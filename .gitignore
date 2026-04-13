@@ -1,9 +1,10 @@
 # Build artifacts
 *.tar.gz
 .build-temp/
+*.pyc
 
 # Container build context
-.buildx-cache/
+.build-contexts/
 
 # IDE
 .vscode/
