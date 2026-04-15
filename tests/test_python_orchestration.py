@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import stat
 import subprocess
 import sys
 import tempfile
@@ -431,98 +430,19 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertIn("--sst-elements-version", stdout)
 
-    def test_prepare_image_config_generates_expected_outputs(self) -> None:
-        """Prepare-image-config should compute the expected patterns."""
+    def test_removed_workflow_helper_commands_are_rejected(self) -> None:
+        """Dead workflow-only helper commands should stay out of the public CLI."""
 
-        with tempfile.NamedTemporaryFile() as output_file:
-            env = {
-                "CONTAINER_TYPE": "core",
-                "IMAGE_PREFIX": "hpc-ai-adv-dev/sst",
-                "TAG_SUFFIX": "15.1.2",
-                "REGISTRY": "ghcr.io",
-                "GITHUB_OUTPUT": output_file.name,
-            }
-            with patch.dict(os.environ, env, clear=False):
-                result = adapters.prepare_image_config_from_env()
+        for command in (
+            "workflow-prepare-image-config",
+            "workflow-validate-source-inputs",
+            "workflow-validate-experiment-inputs",
+        ):
+            with self.subTest(command=command):
+                status, _stdout, stderr = self._run_python_cli([command])
 
-            self.assertEqual(result.image_prefix, "hpc-ai-adv-dev/sst")
-            self.assertEqual(
-                result.core_full_pattern,
-                "ghcr.io/hpc-ai-adv-dev/sst-core:15.1.2",
-            )
-
-            written = Path(output_file.name).read_text(encoding="utf-8")
-            self.assertIn("image_prefix=hpc-ai-adv-dev/sst", written)
-            self.assertIn(
-                "core_full_pattern=ghcr.io/hpc-ai-adv-dev/sst-core:15.1.2",
-                written,
-            )
-
-    def test_validate_custom_inputs_requires_elements_ref_for_full_build(self) -> None:
-        """Custom input validation should reject incomplete full-build requests."""
-
-        env = {
-            "CORE_REF": "feature/test",
-            "ELEMENTS_REPO": "https://github.com/sstsimulator/sst-elements.git",
-            "ELEMENTS_REF": "",
-            "IMAGE_TAG": "",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            with self.assertRaises(ValueError):
-                adapters.validate_source_inputs_from_env()
-
-    def test_validate_experiment_inputs_detects_containerfile(self) -> None:
-        """Experiment validation should accept directories with a custom Containerfile."""
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            experiment_dir = repo_root / "experiments" / "demo-experiment"
-            experiment_dir.mkdir(parents=True)
-            (experiment_dir / "Containerfile").write_text("FROM ubuntu:24.04\n", encoding="utf-8")
-            (experiment_dir / "README.md").write_text("demo\n", encoding="utf-8")
-
-            env = {
-                "EXPERIMENT_NAME": "demo-experiment",
-                "BASE_IMAGE": "sst-core:latest",
-                "REPO_OWNER": "hpc-ai-adv-dev",
-            }
-            with patch.dict(os.environ, env, clear=False):
-                with patch.object(orchestration, "REPO_ROOT", repo_root):
-                    with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                        result = adapters.validate_experiment_inputs_from_env()
-
-            self.assertTrue(result.experiment_exists)
-            self.assertTrue(result.has_containerfile)
-            self.assertEqual(result.resolved_base_image, "")
-            self.assertEqual(result.files_count, 2)
-
-    def test_validate_experiment_inputs_resolves_short_base_image(self) -> None:
-        """Experiment validation should resolve short GHCR image names."""
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            experiment_dir = repo_root / "experiments" / "demo-experiment"
-            experiment_dir.mkdir(parents=True)
-            (experiment_dir / "run.sh").write_text("echo demo\n", encoding="utf-8")
-
-            env = {
-                "EXPERIMENT_NAME": "demo-experiment",
-                "BASE_IMAGE": "sst-core:latest",
-                "REPO_OWNER": "hpc-ai-adv-dev",
-            }
-            with patch.dict(os.environ, env, clear=False):
-                with patch.object(orchestration, "REPO_ROOT", repo_root):
-                    with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                        with patch.object(orchestration, "inspect_remote_manifest", return_value=True):
-                            result = adapters.validate_experiment_inputs_from_env()
-
-            self.assertTrue(result.experiment_exists)
-            self.assertFalse(result.has_containerfile)
-            self.assertEqual(
-                result.resolved_base_image,
-                "ghcr.io/hpc-ai-adv-dev/sst-core:latest",
-            )
-            self.assertEqual(result.files_count, 1)
+                self.assertEqual(status, 1)
+                self.assertIn(f"invalid choice: '{command}'", stderr)
 
     def test_validate_container_reports_size_and_platform(self) -> None:
         """Container validation should return the computed image size."""
@@ -631,36 +551,6 @@ class OrchestrationTests(unittest.TestCase):
 
         log_warning.assert_not_called()
 
-    def test_experiment_build_from_env_builds_custom_container(self) -> None:
-        """Experiment builds should use an experiment-local Containerfile when present."""
-
-        env = {
-            "EXPERIMENT_NAME": "ahp-graph",
-            "BUILD_PLATFORMS": self.host_platform,
-            "REGISTRY": "ghcr.io/hpc-ai-adv-dev",
-            "TAG_SUFFIX": "latest",
-            "VALIDATION_MODE": "none",
-            "NO_CACHE": "false",
-            "BUILD_ARGS_SERIALIZED": "",
-        }
-        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-
-        with patch.dict(os.environ, env, clear=False):
-            with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                with patch.object(orchestration, "_run_command", side_effect=[build_result]):
-                    result = adapters.experiment_build_from_env()
-
-        self.assertEqual(result.containerfile_type, "custom")
-        self.assertEqual(
-            result.containerfile_path,
-            str(self.repo_root / "experiments" / "ahp-graph" / "Containerfile"),
-        )
-        self.assertEqual(result.docker_context, str(self.repo_root / "experiments" / "ahp-graph"))
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/ahp-graph:latest-{self.host_arch}",
-        )
-
     def test_experiment_build_accepts_explicit_request(self) -> None:
         """Experiment builds should be callable without routing through environment variables."""
 
@@ -682,103 +572,6 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(
             result.image_tag,
             f"ghcr.io/hpc-ai-adv-dev/ahp-graph:latest-{self.host_arch}",
-        )
-
-    def test_experiment_build_from_env_metadata_validation_uses_image_inspect(self) -> None:
-        """Metadata validation should inspect the built image without creating a container."""
-
-        env = {
-            "EXPERIMENT_NAME": "phold-example",
-            "BASE_IMAGE": "sst-core:latest",
-            "BUILD_PLATFORMS": self.host_platform,
-            "REGISTRY": "ghcr.io/hpc-ai-adv-dev",
-            "TAG_SUFFIX": "latest",
-            "VALIDATION_MODE": "metadata",
-            "NO_CACHE": "true",
-            "BUILD_ARGS_SERIALIZED": "EXTRA_ARG=value",
-        }
-        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-        inspect_result = subprocess.CompletedProcess(
-            args=["docker", "image", "inspect"],
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "Size": 268435456,
-                        "Architecture": "amd64",
-                        "Config": {"Env": ["PATH=/opt/sst/bin:/opt/mpi/bin"]},
-                        "RootFS": {"Layers": ["sha256:abc"]},
-                    }
-                ]
-            ),
-        )
-
-        with patch.dict(os.environ, env, clear=False):
-            with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                with patch.object(orchestration, "inspect_remote_manifest", return_value=True):
-                    with patch.object(
-                        orchestration,
-                        "_run_command",
-                        side_effect=[build_result, inspect_result],
-                    ):
-                        result = adapters.experiment_build_from_env()
-
-        self.assertEqual(result.containerfile_type, "template")
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/phold-example:latest-{self.host_arch}",
-        )
-
-    def test_source_build_from_env_metadata_validation_uses_image_inspect(self) -> None:
-        """Source builds should validate the built image through Python metadata inspection."""
-
-        env = {
-            "BUILD_TYPE": "core-build",
-            "USING_LOCAL_CORE_CHECKOUT": "false",
-            "SST_CORE_REPO": "https://github.com/sstsimulator/sst-core.git",
-            "SST_CORE_REF": "main",
-            "SST_ELEMENTS_REPO": "",
-            "SST_ELEMENTS_REF": "",
-            "MPICH_VERSION": "4.0.2",
-            "BUILD_NCPUS": "4",
-            "TARGET_PLATFORM": self.host_platform,
-            "REGISTRY": "ghcr.io/hpc-ai-adv-dev",
-            "TAG_SUFFIX": "main",
-            "ENABLE_PERF_TRACKING": "false",
-            "NO_CACHE": "false",
-            "CLEANUP": "false",
-            "VALIDATION_MODE": "metadata",
-        }
-        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-        inspect_result = subprocess.CompletedProcess(
-            args=["docker", "image", "inspect"],
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "Size": 268435456,
-                        "Architecture": "amd64",
-                        "Config": {"Env": ["PATH=/opt/sst/bin:/opt/mpi/bin"]},
-                        "RootFS": {"Layers": ["sha256:abc"]},
-                    }
-                ]
-            ),
-        )
-
-        with patch.dict(os.environ, env, clear=False):
-            with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                with patch.object(
-                    orchestration,
-                    "_run_command",
-                    side_effect=[build_result, inspect_result, inspect_result],
-                ):
-                    result = adapters.source_build_from_env()
-
-        self.assertEqual(result.build_type, "core-build")
-        self.assertEqual(result.image_size_mb, 256)
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/sst-custom:main-{self.host_arch}",
         )
 
     def test_source_build_accepts_explicit_request(self) -> None:
@@ -822,8 +615,8 @@ class OrchestrationTests(unittest.TestCase):
             f"ghcr.io/hpc-ai-adv-dev/sst-custom:main-{self.host_arch}",
         )
 
-    def test_build_custom_delegates_tag_suffix_derivation(self) -> None:
-        """Local source-backed builds should rely on canonical source-build normalization for defaults."""
+    def test_build_custom_derives_tag_from_core_ref_when_suffix_not_set(self) -> None:
+        """Local source-backed builds should derive tag suffix from sst_core_ref when tag_suffix_set=False."""
 
         request = orchestration.BuildRequest(
             container_type="custom",
@@ -835,93 +628,33 @@ class OrchestrationTests(unittest.TestCase):
             sst_core_ref="main",
             container_engine="docker",
         )
-        source_result = orchestration.SourceBuildResult(
-            image_tag=f"ghcr.io/hpc-ai-adv-dev/sst-custom:main-{self.host_arch}",
-            build_type="core-build",
-            image_size_mb=256,
+        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
+        inspect_result = subprocess.CompletedProcess(
+            args=["docker", "image", "inspect"],
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "Size": 268435456,
+                        "Architecture": "amd64",
+                        "Config": {"Env": ["PATH=/opt/sst/bin:/opt/mpi/bin"]},
+                        "RootFS": {"Layers": ["sha256:abc"]},
+                    }
+                ]
+            ),
         )
 
         with patch.object(orchestration, "detect_container_engine", return_value="docker"):
             with patch.object(orchestration, "_download_build_sources"):
-                with patch.object(orchestration, "source_build", return_value=source_result) as source_build:
-                    with patch.object(orchestration, "_write_last_built_image"):
-                        with patch.object(
-                            orchestration,
-                            "_validate_build_image",
-                            return_value=256,
-                        ):
-                            result = orchestration.build(request)
+                with patch.object(orchestration, "_write_last_built_image"):
+                    with patch.object(
+                        orchestration,
+                        "_run_command",
+                        side_effect=[build_result, inspect_result, inspect_result],
+                    ):
+                        result = orchestration.build(request)
 
-        delegated_request = source_build.call_args.args[0]
-        self.assertEqual(delegated_request.tag_suffix, "")
-        self.assertEqual(delegated_request.sst_core_ref, "main")
-        self.assertEqual(result.image_tag, source_result.image_tag)
-        self.assertEqual(result.image_size_mb, 256)
-
-    def test_build_from_env_builds_dev_image_with_metadata_validation(self) -> None:
-        """Build should download, build, and validate dev images through Python."""
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            (repo_root / "Containerfiles").mkdir()
-            (repo_root / "Containerfiles" / "Containerfile.dev").write_text(
-                "FROM ubuntu:22.04\n",
-                encoding="utf-8",
-            )
-            download_script = repo_root / "scripts" / "build" / "download-sources.sh"
-            download_script.parent.mkdir(parents=True)
-            download_script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            download_script.chmod(download_script.stat().st_mode | stat.S_IXUSR)
-
-            env = {
-                "CONTAINER_TYPE": "dev",
-                "VALIDATE_ONLY": "false",
-                "VALIDATION_MODE": "metadata",
-                "CLEANUP": "false",
-                "REGISTRY": "ghcr.io/hpc-ai-adv-dev",
-                "SST_VERSION": "15.1.2",
-                "SST_ELEMENTS_VERSION": "15.1.2",
-                "MPICH_VERSION": "4.0.2",
-                "BUILD_NCPUS": "4",
-                "TARGET_PLATFORM": self.host_platform,
-                "ENABLE_PERF_TRACKING": "false",
-                "TAG_SUFFIX": "latest",
-                "TAG_SUFFIX_SET": "false",
-                "NO_CACHE": "false",
-                "DOWNLOAD_SCRIPT": str(download_script),
-            }
-            download_result = subprocess.CompletedProcess(args=[str(download_script)], returncode=0)
-            build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-            inspect_result = subprocess.CompletedProcess(
-                args=["docker", "image", "inspect"],
-                returncode=0,
-                stdout=json.dumps(
-                    [
-                        {
-                            "Size": 268435456,
-                            "Architecture": "amd64",
-                            "Config": {"Env": ["PATH=/opt/sst/bin:/opt/mpi/bin"]},
-                            "RootFS": {"Layers": ["sha256:abc"]},
-                        }
-                    ]
-                ),
-            )
-
-            with patch.dict(os.environ, env, clear=False):
-                with patch.object(orchestration, "REPO_ROOT", repo_root):
-                    with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                        with patch.object(
-                            orchestration,
-                            "_run_command",
-                            side_effect=[download_result, build_result, inspect_result, inspect_result],
-                        ):
-                            result = adapters.build_from_env()
-
-        self.assertEqual(result.container_type, "dev")
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/sst-dev:latest-{self.host_arch}",
-        )
+        self.assertIn("main", result.image_tag)
         self.assertEqual(result.image_size_mb, 256)
 
     def test_build_accepts_explicit_request(self) -> None:
@@ -934,10 +667,6 @@ class OrchestrationTests(unittest.TestCase):
                 "FROM ubuntu:22.04\n",
                 encoding="utf-8",
             )
-            download_script = repo_root / "scripts" / "build" / "download-sources.sh"
-            download_script.parent.mkdir(parents=True)
-            download_script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            download_script.chmod(download_script.stat().st_mode | stat.S_IXUSR)
 
             request = orchestration.BuildRequest(
                 container_type="dev",
@@ -951,9 +680,7 @@ class OrchestrationTests(unittest.TestCase):
                 tag_suffix="latest",
                 tag_suffix_set=False,
                 container_engine="docker",
-                download_script=str(download_script),
             )
-            download_result = subprocess.CompletedProcess(args=[str(download_script)], returncode=0)
             build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
             inspect_result = subprocess.CompletedProcess(
                 args=["docker", "image", "inspect"],
@@ -971,13 +698,14 @@ class OrchestrationTests(unittest.TestCase):
             )
 
             with patch.object(orchestration, "REPO_ROOT", repo_root):
-                with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-                    with patch.object(
-                        orchestration,
-                        "_run_command",
-                        side_effect=[download_result, build_result, inspect_result, inspect_result],
-                    ):
-                        result = orchestration.build(request)
+                with patch.object(orchestration, "_download_build_sources"):
+                    with patch.object(orchestration, "detect_container_engine", return_value="docker"):
+                        with patch.object(
+                            orchestration,
+                            "_run_command",
+                            side_effect=[build_result, inspect_result, inspect_result],
+                        ):
+                            result = orchestration.build(request)
 
         self.assertEqual(result.container_type, "dev")
         self.assertEqual(

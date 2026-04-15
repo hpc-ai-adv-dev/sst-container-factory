@@ -87,51 +87,12 @@ class OrchestrationError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class PrepareImageConfigResult:
-    """Resolved image naming patterns for a build."""
-
-    image_prefix: str
-    core_full_pattern: str
-    dev_custom_pattern: str
-    experiment_pattern: str
-    default_pattern: str
-
-
-@dataclass(frozen=True)
-class ValidateSourceInputsResult:
-    """Resolved build settings for the custom workflow."""
-
-    build_type: str
-    tag_suffix: str
-
-
-@dataclass(frozen=True)
-class ValidateExperimentInputsResult:
-    """Validated experiment workflow inputs."""
-
-    experiment_exists: bool
-    has_containerfile: bool
-    resolved_base_image: str
-    files_count: int
-
-
-@dataclass(frozen=True)
 class ValidateContainerResult:
     """Validated registry container metadata."""
 
     image_tag: str
     platform: str
     image_size_mb: int
-
-
-@dataclass(frozen=True)
-class ExperimentBuildResult:
-    """Resolved experiment build outputs."""
-
-    image_tag: str
-    containerfile_type: str
-    containerfile_path: str
-    docker_context: str
 
 
 @dataclass(frozen=True)
@@ -156,15 +117,6 @@ class DownloadSourcesResult:
     requested_files: tuple[str, ...]
     total_size_mb: int
     destination_dir: str
-
-
-@dataclass(frozen=True)
-class SourceBuildResult:
-    """Resolved source build outputs."""
-
-    image_tag: str
-    build_type: str
-    image_size_mb: int
 
 
 @dataclass(frozen=True)
@@ -224,7 +176,6 @@ class BuildRequest:
     sst_core_ref: str = ""
     sst_elements_repo: str = ""
     sst_elements_ref: str = ""
-    download_script: str = ""
 
 
 @dataclass(frozen=True)
@@ -1522,15 +1473,6 @@ def _remove_image(container_engine: str, image_tag: str, *, warning_message: str
     return True
 
 
-def _inspect_built_image_size(container_engine: str, image_tag: str) -> int:
-    """Inspect a built image and report its size in MB."""
-
-    metadata = _inspect_image_json(container_engine, image_tag)
-    image_size_mb = _image_size_mb_from_metadata(metadata)
-    log_info(f"Image size: {image_size_mb}MB")
-    return image_size_mb
-
-
 def _download_file_url(url: str, destination: Path) -> None:
     """Download a URL to a destination file path."""
 
@@ -1719,40 +1661,20 @@ def _remove_last_built_image() -> None:
 
 def _download_build_sources(
     download_spec: SourceDownloadSpec,
-    *,
-    download_script_override: str = "",
 ) -> None:
     """Download the source tarballs required for the build entrypoint."""
 
     log_info("Downloading source files...")
-    if download_script_override:
-        download_script = Path(download_script_override)
-        if not download_script.is_file():
-            raise OrchestrationError(f"Download script not found: {download_script}")
-
-        command = [str(download_script), "--force"]
-        if download_spec.download_sst_core:
-            command.extend(["--sst-version", download_spec.sst_version])
-        if download_spec.download_sst_elements:
-            command.extend(["--sst-elements-version", download_spec.sst_elements_version])
-        if download_spec.download_mpich:
-            command.extend(["--mpich-version", download_spec.mpich_version])
-
-        result = _run_command(command, cwd=Path(download_spec.destination_dir))
-        if result.returncode != 0:
-            raise OrchestrationError("Failed to download required source files")
-    else:
-        download_sources(
-            sst_version=download_spec.sst_version or DEFAULT_SST_VERSION,
-            sst_elements_version=download_spec.sst_elements_version or None,
-            mpich_version=download_spec.mpich_version or DEFAULT_MPICH_VERSION,
-            download_mpich=download_spec.download_mpich,
-            download_sst_core=download_spec.download_sst_core,
-            download_sst_elements=download_spec.download_sst_elements,
-            force_mode=download_spec.force_mode,
-            destination_dir=Path(download_spec.destination_dir),
-        )
-
+    download_sources(
+        sst_version=download_spec.sst_version or DEFAULT_SST_VERSION,
+        sst_elements_version=download_spec.sst_elements_version or None,
+        mpich_version=download_spec.mpich_version or DEFAULT_MPICH_VERSION,
+        download_mpich=download_spec.download_mpich,
+        download_sst_core=download_spec.download_sst_core,
+        download_sst_elements=download_spec.download_sst_elements,
+        force_mode=download_spec.force_mode,
+        destination_dir=Path(download_spec.destination_dir),
+    )
     log_success("Source files ready")
 
 
@@ -1767,111 +1689,37 @@ def _build_standard_image(build_spec: BuildSpec, *, container_engine: str) -> st
     return build_spec.primary_platform_build.image_tag
 
 
-def _local_source_build_request(
-    *,
-    registry: str,
-    target_platform: str,
-    mpich_version: str,
-    build_ncpus: str,
-    tag_suffix: str,
-    tag_suffix_set: bool,
-    enable_perf_tracking: bool,
-    no_cache: bool,
-    sst_core_path: str,
-    sst_core_repo: str,
-    sst_core_ref: str,
-    sst_elements_repo: str,
-    sst_elements_ref: str,
-    container_engine: str | None,
-) -> SourceBuildRequest:
-    """Translate a local source-backed build request into the canonical source-build request."""
+def _build_source_image(build_spec: BuildSpec, *, container_engine: str) -> str:
+    """Build a source (custom) image, staging a local checkout if required."""
 
-    return SourceBuildRequest(
-        target_platform=target_platform,
-        tag_suffix=tag_suffix if tag_suffix_set else "",
-        sst_core_ref=sst_core_ref,
-        sst_core_repo=sst_core_repo,
-        sst_core_path=sst_core_path,
-        sst_elements_repo=sst_elements_repo,
-        sst_elements_ref=sst_elements_ref,
-        mpich_version=mpich_version,
-        build_ncpus=build_ncpus,
-        registry=registry,
-        enable_perf_tracking=enable_perf_tracking,
-        no_cache=no_cache,
-        cleanup=False,
-        validation_mode="none",
+    staged_local_source = False
+    if build_spec.source.uses_local_core_checkout:
+        stage_local_sst_core_checkout(build_spec.source.sst_core_path)
+        staged_local_source = True
+
+    try:
+        _run_container_build(
+            _container_plan_from_platform_build(build_spec.primary_platform_build),
+            container_engine=container_engine,
+            failure_message="Container build failed",
+            cwd=REPO_ROOT,
+        )
+    finally:
+        if staged_local_source:
+            reset_local_source_stage_dir()
+
+    return build_spec.primary_platform_build.image_tag
+
+
+def _build_experiment_image(build_spec: BuildSpec, *, container_engine: str) -> str:
+    """Build an experiment image for the build entrypoint."""
+
+    _run_container_build(
+        _container_plan_from_platform_build(build_spec.primary_platform_build),
         container_engine=container_engine,
+        failure_message="Experiment container build failed",
     )
-
-
-def _delegate_local_source_build(
-    *,
-    registry: str,
-    target_platform: str,
-    mpich_version: str,
-    build_ncpus: str,
-    tag_suffix: str,
-    tag_suffix_set: bool,
-    enable_perf_tracking: bool,
-    no_cache: bool,
-    sst_core_path: str,
-    sst_core_repo: str,
-    sst_core_ref: str,
-    sst_elements_repo: str,
-    sst_elements_ref: str,
-    container_engine: str,
-) -> str:
-    """Delegate a local build source image request to the canonical source-build path."""
-    result = source_build(
-        _local_source_build_request(
-            registry=registry,
-            target_platform=target_platform,
-            mpich_version=mpich_version,
-            build_ncpus=build_ncpus,
-            tag_suffix=tag_suffix,
-            tag_suffix_set=tag_suffix_set,
-            enable_perf_tracking=enable_perf_tracking,
-            no_cache=no_cache,
-            sst_core_path=sst_core_path,
-            sst_core_repo=sst_core_repo,
-            sst_core_ref=sst_core_ref,
-            sst_elements_repo=sst_elements_repo,
-            sst_elements_ref=sst_elements_ref,
-            container_engine=container_engine,
-        )
-    )
-    return result.image_tag
-
-
-def _delegate_local_experiment_build(
-    *,
-    registry: str,
-    target_platform: str,
-    tag_suffix: str,
-    base_image: str,
-    experiment_name: str,
-    no_cache: bool,
-    container_engine: str,
-) -> str:
-    """Delegate a build entrypoint experiment image build to the canonical experiment entrypoint."""
-
-    if not experiment_name:
-        raise OrchestrationError("Experiment builds require an experiment name")
-
-    result = experiment_build(
-        ExperimentBuildRequest(
-            experiment_name=experiment_name,
-            base_image=base_image,
-            build_platforms=target_platform,
-            registry=registry,
-            tag_suffix=tag_suffix,
-            validation_mode="none",
-            no_cache=no_cache,
-            container_engine=container_engine,
-        )
-    )
-    return result.image_tag
+    return build_spec.primary_platform_build.image_tag
 
 
 def _plan_source_build_spec(normalized_request: SourceBuildRequest) -> BuildSpec:
@@ -1952,12 +1800,6 @@ def _plan_source_build_spec(normalized_request: SourceBuildRequest) -> BuildSpec
     )
 
 
-def plan_source_build_spec(request: SourceBuildRequest) -> BuildSpec:
-    """Return the shared build spec for a source build request."""
-
-    return _plan_source_build_spec(normalize_source_build_request(request))
-
-
 def _plan_experiment_build_spec(
     normalized_request: ExperimentBuildRequest,
     *,
@@ -2035,21 +1877,6 @@ def _plan_experiment_build_spec(
     )
 
 
-def plan_experiment_build_spec(
-    request: ExperimentBuildRequest,
-    *,
-    container_engine: str | None = None,
-    validate_base_image: bool = True,
-) -> BuildSpec:
-    """Return the shared build spec for an experiment build request."""
-
-    return _plan_experiment_build_spec(
-        normalize_experiment_build_request(request),
-        container_engine=container_engine,
-        validate_base_image=validate_base_image,
-    )
-
-
 def plan_build_spec(
     request: BuildRequest,
     *,
@@ -2063,20 +1890,21 @@ def plan_build_spec(
     if normalized_request.container_type == "custom":
         custom_spec = _plan_source_build_spec(
             normalize_source_build_request(
-                _local_source_build_request(
-                    registry=normalized_request.registry,
+                SourceBuildRequest(
                     target_platform=normalized_request.target_platform,
-                    mpich_version=normalized_request.mpich_version,
-                    build_ncpus=normalized_request.build_ncpus,
-                    tag_suffix=normalized_request.tag_suffix,
-                    tag_suffix_set=normalized_request.tag_suffix_set,
-                    enable_perf_tracking=normalized_request.enable_perf_tracking,
-                    no_cache=normalized_request.no_cache,
-                    sst_core_path=normalized_request.sst_core_path,
-                    sst_core_repo=normalized_request.sst_core_repo,
+                    tag_suffix=normalized_request.tag_suffix if normalized_request.tag_suffix_set else "",
                     sst_core_ref=normalized_request.sst_core_ref,
+                    sst_core_repo=normalized_request.sst_core_repo,
+                    sst_core_path=normalized_request.sst_core_path,
                     sst_elements_repo=normalized_request.sst_elements_repo,
                     sst_elements_ref=normalized_request.sst_elements_ref,
+                    mpich_version=normalized_request.mpich_version,
+                    build_ncpus=normalized_request.build_ncpus,
+                    registry=normalized_request.registry,
+                    enable_perf_tracking=normalized_request.enable_perf_tracking,
+                    no_cache=normalized_request.no_cache,
+                    cleanup=False,
+                    validation_mode="none",
                     container_engine=normalized_request.container_engine,
                 )
             )
@@ -2202,7 +2030,6 @@ def build(request: BuildRequest) -> BuildResult:
 
             _download_build_sources(
                 build_spec.source_download,
-                download_script_override=normalized_request.download_script,
             )
 
             if normalized_request.container_type in {"core", "full", "dev"}:
@@ -2211,30 +2038,13 @@ def build(request: BuildRequest) -> BuildResult:
                     container_engine=container_engine,
                 )
             elif normalized_request.container_type == "custom":
-                image_tag = _delegate_local_source_build(
-                    registry=normalized_request.registry,
-                    target_platform=normalized_request.target_platform,
-                    mpich_version=normalized_request.mpich_version,
-                    build_ncpus=normalized_request.build_ncpus,
-                    tag_suffix=normalized_request.tag_suffix,
-                    tag_suffix_set=normalized_request.tag_suffix_set,
-                    enable_perf_tracking=normalized_request.enable_perf_tracking,
-                    no_cache=normalized_request.no_cache,
-                    sst_core_path=normalized_request.sst_core_path,
-                    sst_core_repo=normalized_request.sst_core_repo,
-                    sst_core_ref=normalized_request.sst_core_ref,
-                    sst_elements_repo=normalized_request.sst_elements_repo,
-                    sst_elements_ref=normalized_request.sst_elements_ref,
+                image_tag = _build_source_image(
+                    build_spec,
                     container_engine=container_engine,
                 )
             elif normalized_request.container_type == "experiment":
-                image_tag = _delegate_local_experiment_build(
-                    registry=normalized_request.registry,
-                    target_platform=normalized_request.target_platform,
-                    tag_suffix=normalized_request.tag_suffix,
-                    base_image=normalized_request.base_image,
-                    experiment_name=normalized_request.experiment_name,
-                    no_cache=normalized_request.no_cache,
+                image_tag = _build_experiment_image(
+                    build_spec,
                     container_engine=container_engine,
                 )
             else:
@@ -2422,156 +2232,6 @@ def _validate_container(
         platform=target_platform,
         image_size_mb=image_size_mb,
     )
-
-
-def experiment_build(request: ExperimentBuildRequest) -> ExperimentBuildResult:
-    """Execute the experiment build path from explicit arguments."""
-
-    normalized_request = normalize_experiment_build_request(request)
-
-    container_engine = detect_container_engine(normalized_request.container_engine)
-    build_spec = _plan_experiment_build_spec(
-        normalized_request,
-        container_engine=container_engine,
-        validate_base_image=True,
-    )
-    platform_build = build_spec.primary_platform_build
-
-    log_info("Starting experiment container build...")
-    log_info("Configuration:")
-    log_info(f"  Experiment: {normalized_request.experiment_name}")
-    log_info("  Container type: experiment")
-    log_info(
-        f"  Containerfile type: {'custom' if build_spec.source.uses_custom_containerfile else 'template'}"
-    )
-    log_info(f"  Containerfile path: {platform_build.containerfile_path}")
-    log_info(f"  Docker context: {platform_build.docker_context}")
-    log_info(f"  Tag: {platform_build.image_tag}")
-    log_info(f"  Platforms: {platform_build.platform}")
-    log_info(f"  Validation: {build_spec.verification.mode}")
-    if platform_build.build_args:
-        log_info("  Build args:")
-        for build_arg in platform_build.build_args:
-            log_info(f"    {build_arg}")
-
-    start_group("Container Build")
-    build_result = _run_command(
-        _create_container_build_command(
-            container_engine,
-            _container_plan_from_platform_build(platform_build),
-        )
-    )
-    end_group()
-    if build_result.returncode != 0:
-        raise OrchestrationError("Experiment container build failed")
-
-    log_info(f"Container built successfully: {platform_build.image_tag}")
-
-    _run_image_validation(
-        build_spec.verification.mode,
-        container_engine=container_engine,
-        image_tag=platform_build.image_tag,
-        target_platform=platform_build.platform,
-        max_size_mb=build_spec.verification.max_size_mb,
-        pre_message="Running container validation...",
-        skip_message="Skipping validation (validation mode: none)",
-        quick_success_message="Quick container validation passed",
-        metadata_success_message="Metadata-only container validation passed",
-        full_success_message="Full container validation passed",
-    )
-
-    log_info("Experiment build completed successfully!")
-    return ExperimentBuildResult(
-        image_tag=platform_build.image_tag,
-        containerfile_type="custom" if build_spec.source.uses_custom_containerfile else "template",
-        containerfile_path=platform_build.containerfile_path,
-        docker_context=platform_build.docker_context,
-    )
-
-
-def source_build(request: SourceBuildRequest) -> SourceBuildResult:
-    """Execute the source build path from explicit arguments."""
-
-    normalized_request = normalize_source_build_request(request)
-    build_spec = _plan_source_build_spec(normalized_request)
-    platform_build = build_spec.primary_platform_build
-    build_type = platform_build.build_target
-    using_local_core_checkout = build_spec.source.uses_local_core_checkout
-    container_engine = detect_container_engine(normalized_request.container_engine)
-
-    start_group("Source SST Container Build")
-    log_info("Build Configuration:")
-    if using_local_core_checkout:
-        log_info(f"  SST Core Checkout: {normalized_request.sst_core_path}")
-    else:
-        log_info(f"  SST Core Repository: {normalized_request.sst_core_repo}")
-        log_info(f"  SST Core Reference: {normalized_request.sst_core_ref}")
-    if normalized_request.sst_elements_repo:
-        log_info(f"  SST Elements Repository: {normalized_request.sst_elements_repo}")
-        log_info(f"  SST Elements Reference: {normalized_request.sst_elements_ref}")
-    log_info(f"  MPICH Version: {normalized_request.mpich_version}")
-    log_info(f"  Performance Tracking: {str(normalized_request.enable_perf_tracking).lower()}")
-    log_info(f"  Build Type: {build_type}")
-    log_info(f"  Target Platform: {normalized_request.target_platform}")
-    log_info(f"  Container Engine: {container_engine}")
-    log_info(f"  Image Tag: {platform_build.image_tag}")
-    end_group()
-
-    staged_local_source = False
-    if using_local_core_checkout:
-        stage_local_sst_core_checkout(normalized_request.sst_core_path)
-        staged_local_source = True
-
-    try:
-        build_time_seconds = _run_container_build(
-            _container_plan_from_platform_build(platform_build),
-            container_engine=container_engine,
-            failure_message="Container build failed",
-            cwd=REPO_ROOT,
-        )
-        log_success(f"Container build completed in {build_time_seconds}s")
-
-        image_size_mb = _inspect_built_image_size(container_engine, platform_build.image_tag)
-
-        _run_image_validation(
-            build_spec.verification.mode,
-            container_engine=container_engine,
-            image_tag=platform_build.image_tag,
-            target_platform=normalized_request.target_platform,
-            max_size_mb=build_spec.verification.max_size_mb,
-            group_name="Validating Container",
-            quick_success_message="Quick container validation passed",
-            metadata_success_message="Metadata-only container validation passed",
-            full_success_message="Container validation passed",
-        )
-
-        if normalized_request.cleanup:
-            log_info(f"Cleaning up image: {platform_build.image_tag}")
-            if _remove_image(
-                container_engine,
-                platform_build.image_tag,
-                warning_message="Failed to clean up image",
-            ):
-                log_success("Image cleaned up successfully")
-
-        log_success("Source build completed successfully")
-        log_info(f"Image: {platform_build.image_tag}")
-
-        if normalized_request.github_actions_mode or os.environ.get("GITHUB_ACTIONS") == "true":
-            set_output("image-tag", platform_build.image_tag)
-            set_output("build-time", str(build_time_seconds))
-            set_output("image-size-mb", str(image_size_mb))
-            set_output("platform", normalized_request.target_platform)
-            set_output("build-successful", "true")
-
-        return SourceBuildResult(
-            image_tag=platform_build.image_tag,
-            build_type=build_type,
-            image_size_mb=image_size_mb,
-        )
-    finally:
-        if staged_local_source:
-            reset_local_source_stage_dir()
 
 
 def _run_image_validation(
