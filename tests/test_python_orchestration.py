@@ -551,70 +551,6 @@ class OrchestrationTests(unittest.TestCase):
 
         log_warning.assert_not_called()
 
-    def test_experiment_build_accepts_explicit_request(self) -> None:
-        """Experiment builds should be callable without routing through environment variables."""
-
-        request = orchestration.ExperimentBuildRequest(
-            experiment_name="ahp-graph",
-            build_platforms=self.host_platform,
-            registry="ghcr.io/hpc-ai-adv-dev",
-            tag_suffix="latest",
-            validation_mode="none",
-            container_engine="docker",
-        )
-        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-
-        with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-            with patch.object(orchestration, "_run_command", side_effect=[build_result]):
-                result = orchestration.experiment_build(request)
-
-        self.assertEqual(result.containerfile_type, "custom")
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/ahp-graph:latest-{self.host_arch}",
-        )
-
-    def test_source_build_accepts_explicit_request(self) -> None:
-        """Source builds should be callable without routing through environment variables."""
-
-        request = orchestration.SourceBuildRequest(
-            sst_core_ref="main",
-            target_platform=self.host_platform,
-            registry="ghcr.io/hpc-ai-adv-dev",
-            tag_suffix="main",
-            validation_mode="metadata",
-            container_engine="docker",
-        )
-        build_result = subprocess.CompletedProcess(args=["docker", "build"], returncode=0)
-        inspect_result = subprocess.CompletedProcess(
-            args=["docker", "image", "inspect"],
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "Size": 268435456,
-                        "Architecture": "amd64",
-                        "Config": {"Env": ["PATH=/opt/sst/bin:/opt/mpi/bin"]},
-                        "RootFS": {"Layers": ["sha256:abc"]},
-                    }
-                ]
-            ),
-        )
-
-        with patch.object(orchestration, "detect_container_engine", return_value="docker"):
-            with patch.object(
-                orchestration,
-                "_run_command",
-                side_effect=[build_result, inspect_result, inspect_result],
-            ):
-                result = orchestration.source_build(request)
-
-        self.assertEqual(result.build_type, "core-build")
-        self.assertEqual(
-            result.image_tag,
-            f"ghcr.io/hpc-ai-adv-dev/sst-custom:main-{self.host_arch}",
-        )
-
     def test_build_custom_derives_tag_from_core_ref_when_suffix_not_set(self) -> None:
         """Local source-backed builds should derive tag suffix from sst_core_ref when tag_suffix_set=False."""
 
@@ -753,8 +689,8 @@ class OrchestrationTests(unittest.TestCase):
             f"ghcr.io/hpc-ai-adv-dev/sst-perf-track-full:15.1.2-{self.host_arch}",
         )
 
-    def test_plan_source_build_spec_captures_full_build_from_local_checkout(self) -> None:
-        """Source build planning should encode repository sources and build arguments."""
+    def test_plan_build_spec_captures_full_source_build_from_local_checkout(self) -> None:
+        """Build spec planning should encode local-checkout source inputs and build arguments."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source_dir = Path(temp_dir) / "sst-core"
@@ -762,9 +698,11 @@ class OrchestrationTests(unittest.TestCase):
             (source_dir / "autogen.sh").write_text("#!/bin/sh\n", encoding="utf-8")
             (source_dir / "configure.ac").write_text("AC_INIT([sst-core],[test])\n", encoding="utf-8")
 
-            request = orchestration.SourceBuildRequest(
+            request = orchestration.BuildRequest(
+                container_type="custom",
                 target_platform=self.host_platform,
                 tag_suffix="local-main-full",
+                tag_suffix_set=True,
                 sst_core_path=str(source_dir),
                 sst_elements_repo="https://github.com/sstsimulator/sst-elements.git",
                 sst_elements_ref="main",
@@ -773,9 +711,9 @@ class OrchestrationTests(unittest.TestCase):
                 registry="ghcr.io/hpc-ai-adv-dev",
             )
 
-            spec = orchestration.plan_source_build_spec(request)
+            spec = orchestration.plan_build_spec(request)
 
-        self.assertEqual(spec.build_kind, "custom")
+        self.assertEqual(spec.build_kind, "local")
         self.assertEqual(spec.source.source_kind, "local-checkout")
         self.assertTrue(spec.source.uses_local_core_checkout)
         self.assertEqual(spec.primary_platform_build.build_target, "full-build")
@@ -800,25 +738,23 @@ class OrchestrationTests(unittest.TestCase):
             f"ghcr.io/hpc-ai-adv-dev/sst-perf-track-custom:local-main-full-{self.host_arch}",
         )
 
-    def test_plan_experiment_build_spec_resolves_template_build(self) -> None:
-        """Experiment planning should capture template Containerfile builds and base images."""
+    def test_plan_build_spec_resolves_experiment_template_build(self) -> None:
+        """Build spec planning should capture template experiment builds and base images."""
 
-        request = orchestration.ExperimentBuildRequest(
+        request = orchestration.BuildRequest(
+            container_type="experiment",
+            target_platform=self.host_platform,
             experiment_name="phold-example",
             base_image="sst-core:latest",
-            build_platforms=self.host_platform,
             registry="ghcr.io/hpc-ai-adv-dev",
             tag_suffix="latest",
+            tag_suffix_set=True,
             validation_mode="metadata",
-            build_args=("EXTRA=1",),
         )
 
-        spec = orchestration.plan_experiment_build_spec(
-            request,
-            validate_base_image=False,
-        )
+        spec = orchestration.plan_build_spec(request)
 
-        self.assertEqual(spec.build_kind, "experiment")
+        self.assertEqual(spec.build_kind, "local")
         self.assertEqual(spec.source.source_kind, "experiment-template")
         self.assertFalse(spec.source.uses_custom_containerfile)
         self.assertEqual(
@@ -829,7 +765,6 @@ class OrchestrationTests(unittest.TestCase):
             spec.primary_platform_build.containerfile_path,
             str(self.repo_root / "Containerfiles" / "Containerfile.experiment"),
         )
-        self.assertIn("EXTRA=1", spec.primary_platform_build.build_args)
         self.assertIn(
             f"BASE_IMAGE=ghcr.io/{os.environ.get('USER', '')}/sst-core:latest",
             spec.primary_platform_build.build_args,
