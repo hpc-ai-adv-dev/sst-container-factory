@@ -7,12 +7,10 @@ import json
 import os
 import platform
 import re
-import ssl
 import shutil
 import subprocess
 import tempfile
 import time
-import urllib.request
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -1476,14 +1474,21 @@ def _remove_image(container_engine: str, image_tag: str, *, warning_message: str
 def _download_file_url(url: str, destination: Path) -> None:
     """Download a URL to a destination file path."""
 
-    request = urllib.request.Request(url, headers={"User-Agent": "sst-container-factory"})
+    # Prefer wget here because some upstream hosts apply bot challenges
+    # that block Python's default HTTP clients.
+    wget_command = [
+        "wget",
+        url,
+        "--output-document",
+        str(destination),
+        "--no-check-certificate",
+    ]
     try:
-        with urllib.request.urlopen(
-            request,
-            context=ssl.create_default_context(),
-        ) as response:
-            with destination.open("wb") as handle:
-                shutil.copyfileobj(response, handle)
+        result = _run_command(wget_command, capture_output=True)
+        if result.returncode != 0:
+            details = (result.stderr or "").strip() or (result.stdout or "").strip()
+            message = details or f"wget exited with status {result.returncode}"
+            raise OrchestrationError(message)
     except Exception as exc:
         destination.unlink(missing_ok=True)
         raise OrchestrationError(f"Failed to download {destination.name}: {exc}") from exc
