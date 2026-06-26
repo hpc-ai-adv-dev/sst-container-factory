@@ -55,6 +55,7 @@ VALID_SST_VERSIONS = (
     "15.1.0",
     "15.1.1",
     "15.1.2",
+    "16.0.0",
 )
 DEFAULT_SIZE_LIMITS_MB = {
     "core": 2048,
