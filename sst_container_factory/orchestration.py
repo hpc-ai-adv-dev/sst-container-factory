@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.parse
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -1473,6 +1474,18 @@ def _remove_image(container_engine: str, image_tag: str, *, warning_message: str
 
 def _download_file_url(url: str, destination: Path) -> None:
     """Download a URL to a destination file path."""
+
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme == "file":
+        source_path = Path(urllib.parse.unquote(parsed_url.path))
+        if not source_path.is_file():
+            raise OrchestrationError(f"Local source file does not exist: {source_path}")
+        try:
+            shutil.copy2(source_path, destination)
+            return
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            raise OrchestrationError(f"Failed to copy local file {source_path}: {exc}") from exc
 
     # Prefer wget here because some upstream hosts apply bot challenges
     # that block Python's default HTTP clients.
