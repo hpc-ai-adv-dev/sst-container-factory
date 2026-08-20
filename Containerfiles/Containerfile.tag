@@ -73,6 +73,7 @@ RUN apt update && apt install -y \
     python3-pip \
     libtool \
     libtool-bin \
+    ripgrep \
     valgrind \
     zlib1g-dev \
     wget \

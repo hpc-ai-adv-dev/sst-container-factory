@@ -47,6 +47,7 @@ RUN apt update && apt install -y \
     locales \
     graphviz \
     libgraphviz-dev \
+    ripgrep \
     valgrind \
     vim \
     wget \
