@@ -38,7 +38,7 @@ Build the default development image:
 Build a specific SST-core release image:
 
 ```bash
-./sst_container_factory/bin/build.sh core --sst-version 15.1.2
+./sst_container_factory/bin/build.sh core --sst-version 16.0.0
 ```
 
 Build a full release image with an explicit SST-elements version:

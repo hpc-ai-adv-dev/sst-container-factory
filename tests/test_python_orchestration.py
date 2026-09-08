@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 from typing import cast
 import unittest
@@ -74,6 +75,24 @@ class OrchestrationTests(unittest.TestCase):
             return "linux/arm64"
         return "linux/amd64"
 
+    @staticmethod
+    def _write_valid_archive(path: Path, payload: bytes = b"archive-member") -> None:
+        """Write a small but structurally complete gzip tar archive holding payload."""
+
+        with tarfile.open(path, "w:gz") as archive:
+            info = tarfile.TarInfo("member.txt")
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+
+    @staticmethod
+    def _read_archive_member(path: Path) -> bytes:
+        """Return the payload stored by _write_valid_archive."""
+
+        with tarfile.open(path, "r:gz") as archive:
+            member = archive.extractfile("member.txt")
+            assert member is not None
+            return member.read()
+
     def test_download_sources_downloads_requested_artifacts(self) -> None:
         """The Python downloader should fetch the requested tarballs into a target directory."""
 
@@ -85,9 +104,9 @@ class OrchestrationTests(unittest.TestCase):
             mpich_source = temp_path / "mpich-source.tar.gz"
             core_source = temp_path / "sstcore-source.tar.gz"
             elements_source = temp_path / "sstelements-source.tar.gz"
-            mpich_source.write_bytes(b"mpich-source")
-            core_source.write_bytes(b"sst-core-source")
-            elements_source.write_bytes(b"sst-elements-source")
+            self._write_valid_archive(mpich_source, b"mpich-source")
+            self._write_valid_archive(core_source, b"sst-core-source")
+            self._write_valid_archive(elements_source, b"sst-elements-source")
 
             env = {
                 "SST_DOWNLOAD_MPICH_URL": mpich_source.resolve().as_uri(),
@@ -114,12 +133,113 @@ class OrchestrationTests(unittest.TestCase):
                     "sstelements-15.1.0.tar.gz",
                 ),
             )
-            self.assertEqual((destination / "mpich-4.0.2.tar.gz").read_bytes(), b"mpich-source")
-            self.assertEqual((destination / "sstcore-15.1.2.tar.gz").read_bytes(), b"sst-core-source")
             self.assertEqual(
-                (destination / "sstelements-15.1.0.tar.gz").read_bytes(),
+                self._read_archive_member(destination / "mpich-4.0.2.tar.gz"),
+                b"mpich-source",
+            )
+            self.assertEqual(
+                self._read_archive_member(destination / "sstcore-15.1.2.tar.gz"),
+                b"sst-core-source",
+            )
+            self.assertEqual(
+                self._read_archive_member(destination / "sstelements-15.1.0.tar.gz"),
                 b"sst-elements-source",
             )
+
+    def _download_mpich_into(self, destination: Path, *, force_mode: bool) -> None:
+        """Download a single MPICH tarball from a local file URL into destination."""
+
+        source = destination.parent / "mpich-source.tar.gz"
+        self._write_valid_archive(source, b"fresh-mpich-source")
+
+        env = {"SST_DOWNLOAD_MPICH_URL": source.resolve().as_uri()}
+        with patch.dict(os.environ, env, clear=False):
+            orchestration.download_sources(
+                mpich_version="4.3.2",
+                download_mpich=True,
+                download_sst_core=False,
+                download_sst_elements=False,
+                force_mode=force_mode,
+                destination_dir=destination,
+            )
+
+    def test_download_sources_keeps_existing_valid_archive_without_force(self) -> None:
+        """Without --force a readable existing archive should be left untouched."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "downloads"
+            destination.mkdir()
+            existing = destination / "mpich-4.3.2.tar.gz"
+            self._write_valid_archive(existing, b"cached-mpich-source")
+
+            self._download_mpich_into(destination, force_mode=False)
+
+            self.assertEqual(self._read_archive_member(existing), b"cached-mpich-source")
+
+    def test_download_sources_replaces_unreadable_archive_without_force(self) -> None:
+        """An empty, truncated, or non-archive cache entry should be re-downloaded without --force."""
+
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            info = tarfile.TarInfo("member.txt")
+            info.size = len(b"archive-member")
+            archive.addfile(info, io.BytesIO(b"archive-member"))
+        complete = buffer.getvalue()
+
+        corruption_cases = {
+            "empty": b"",
+            "truncated": complete[: len(complete) // 2],
+            "html error page": b"<!DOCTYPE html><html><body>404</body></html>\n",
+        }
+
+        for case_name, contents in corruption_cases.items():
+            with self.subTest(case=case_name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    destination = Path(temp_dir) / "downloads"
+                    destination.mkdir()
+                    corrupt = destination / "mpich-4.3.2.tar.gz"
+                    corrupt.write_bytes(contents)
+
+                    self._download_mpich_into(destination, force_mode=False)
+
+                    self.assertEqual(self._read_archive_member(corrupt), b"fresh-mpich-source")
+
+    def test_download_sources_force_replaces_existing_file(self) -> None:
+        """--force should re-download over an existing archive even when it is readable."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "downloads"
+            destination.mkdir()
+            existing = destination / "mpich-4.3.2.tar.gz"
+            self._write_valid_archive(existing, b"cached-mpich-source")
+
+            self._download_mpich_into(destination, force_mode=True)
+
+            self.assertEqual(self._read_archive_member(existing), b"fresh-mpich-source")
+
+    def test_download_sources_rejects_corrupt_download(self) -> None:
+        """A download that does not yield a readable archive should fail loudly and leave no file."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            destination = temp_path / "downloads"
+            destination.mkdir()
+            source = temp_path / "mpich-source.tar.gz"
+            source.write_bytes(b"<!DOCTYPE html><html><body>404</body></html>\n")
+
+            env = {"SST_DOWNLOAD_MPICH_URL": source.resolve().as_uri()}
+            with patch.dict(os.environ, env, clear=False):
+                with self.assertRaises(orchestration.OrchestrationError) as raised:
+                    orchestration.download_sources(
+                        mpich_version="4.3.2",
+                        download_mpich=True,
+                        download_sst_core=False,
+                        download_sst_elements=False,
+                        destination_dir=destination,
+                    )
+
+            self.assertIn("not a readable archive", str(raised.exception))
+            self.assertFalse((destination / "mpich-4.3.2.tar.gz").exists())
 
     def test_cli_download_sources_maps_explicit_selection(self) -> None:
         """The Python CLI should translate downloader options into explicit request flags."""

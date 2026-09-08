@@ -7,7 +7,7 @@
 #   tag:    repository tag name to build from
 #   SSTElementsRepo: SST-elements repository to use (optional)
 #   elementsTag: SST-elements tag/sha to build from (optional)
-#   mpich:  MPICH version  (default: 4.0.2)
+#   mpich:  MPICH version  (default: 4.3.2)
 #   NCPUS:  Parallel make jobs (default: 2)
 #   ENABLE_PERF_TRACKING: Enable performance tracking in SST-core (causes performance hit)
 #
@@ -53,7 +53,7 @@ ARG SST_CORE_SOURCE_STAGE=sst-core-git-source
 FROM ubuntu:22.04 AS base
 
 # Build arguments to control download behavior
-ARG mpich=4.0.2
+ARG mpich=4.3.2
 ARG mpich_prefix=mpich-$mpich
 ARG NCPUS=2
 ARG ENABLE_PERF_TRACKING=

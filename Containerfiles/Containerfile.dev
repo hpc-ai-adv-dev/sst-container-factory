@@ -1,7 +1,7 @@
 # This Containerfile supports flexible MPICH version building with other SST deps
 #
 # BUILD ARGUMENTS:#
-#   mpich:  MPICH version  (default: 4.0.2)
+#   mpich:  MPICH version  (default: 4.3.2)
 #   NCPUS:  Parallel make jobs (default: 2)
 #
 # STAGES DEFINED:
@@ -11,9 +11,9 @@
 #
 # EXAMPLE USAGE:
 #
-# Build container with MPICH 4.0.2 and all other SST deps
+# Build container with MPICH 4.3.2 and all other SST deps
 # podman build \
-#   --build-arg mpich=4.0.2 \
+#   --build-arg mpich=4.3.2 \
 #   --build-arg NCPUS=4 \
 #   -f Containerfile.dev \
 #   -t sst-dev:latest \
@@ -24,7 +24,7 @@
 FROM ubuntu:22.04 AS base
 
 # Build arguments to control download behavior
-ARG mpich=4.0.2
+ARG mpich=4.3.2
 ARG mpich_prefix=mpich-$mpich
 ARG NCPUS=2
 

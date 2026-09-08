@@ -1,9 +1,9 @@
 # This Containerfile supports flexible SST and MPICH version building
 #
 # BUILD ARGUMENTS:
-#   SSTver: SST version to build (default: 15.1.2, valid: 14.0.0, 14.1.0, 15.0.0, 15.1.0, 15.1.1, 15.1.2)
+#   SSTver: SST version to build (default: 16.0.0, valid: 14.0.0, 14.1.0, 15.0.0, 15.1.0, 15.1.1, 15.1.2, 16.0.0)
 #   SST_ELEMENTS_VERSION: SST-elements version (default: same as SSTver)
-#   mpich:  MPICH version  (default: 4.0.2)
+#   mpich:  MPICH version  (default: 4.3.2)
 #   NCPUS:  Parallel make jobs (default: 2)
 #   ENABLE_PERF_TRACKING: Enable performance tracking in SST-core (causes performance hit)
 #
@@ -21,7 +21,7 @@
 # podman build \
 #   --build-arg SSTver=15.1.1 \
 #   --build-arg SST_ELEMENTS_VERSION=15.1.0 \
-#   --build-arg mpich=4.0.2 \
+#   --build-arg mpich=4.3.2 \
 #   --build-arg NCPUS=4 \
 #   --target sst-full \
 #   -f Containerfile \
@@ -31,7 +31,7 @@
 # # Build core-only SST container
 # podman build \
 #   --build-arg SSTver=15.1.0 \
-#   --build-arg mpich=4.0.2 \
+#   --build-arg mpich=4.3.2 \
 #   -f Containerfile \
 #   -t sst-core:15.1.0 \
 #   .
@@ -40,9 +40,9 @@
 FROM ubuntu:22.04 AS base
 
 # Build arguments to control download behavior
-ARG SSTver=15.1.2
+ARG SSTver=16.0.0
 ARG SST_ELEMENTS_VERSION=$SSTver
-ARG mpich=4.0.2
+ARG mpich=4.3.2
 ARG mpich_prefix=mpich-$mpich
 ARG NCPUS=2
 ARG ENABLE_PERF_TRACKING
@@ -82,7 +82,7 @@ RUN /sbin/ldconfig
 FROM base AS core-build
 
 # Re-declare ARG for this stage
-ARG SSTver=15.1.2
+ARG SSTver=16.0.0
 ARG NCPUS=2
 ARG ENABLE_PERF_TRACKING
 
@@ -114,7 +114,7 @@ RUN if [ -z "$NCPUS" ]; then \
 FROM core-build AS elements-build
 
 # Re-declare ARG for this stage
-ARG SSTver=15.1.2
+ARG SSTver=16.0.0
 ARG SST_ELEMENTS_VERSION=$SSTver
 ARG NCPUS=2
 
@@ -170,7 +170,7 @@ RUN /sbin/ldconfig
 FROM runtime AS sst-full
 
 # Re-declare ARG for this stage
-ARG SSTver=15.1.2
+ARG SSTver=16.0.0
 ARG SST_ELEMENTS_VERSION=$SSTver
 
 # Copy all of the installed SST directories
@@ -185,7 +185,7 @@ ENTRYPOINT ["/bin/bash"]
 FROM runtime AS sst-core
 
 # Re-declare ARG for this stage
-ARG SSTver=15.1.2
+ARG SSTver=16.0.0
 
 # Copy only the installed SST core binaries and libraries
 COPY --from=core-build /opt/SST/${SSTver} /opt/SST/${SSTver}

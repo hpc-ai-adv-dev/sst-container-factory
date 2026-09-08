@@ -16,7 +16,7 @@ on:
       mpich_version:
         description: 'MPICH version to use'
         required: false
-        default: '4.0.2'
+        default: '4.3.2'
         type: string
       build_platforms:
         description: 'Platforms to build for'
@@ -91,7 +91,7 @@ jobs:
       image_prefix: '${{ github.repository_owner }}/sst'
       tag_suffix: '${{ needs.check-updates.outputs.tag_suffix }}'
       build_platforms: ${{ inputs.build_platforms || 'linux/amd64,linux/arm64' }}
-      mpich_version: ${{ inputs.mpich_version || '4.0.2' }}
+      mpich_version: ${{ inputs.mpich_version || '4.3.2' }}
       sst_core_repo: 'https://github.com/sstsimulator/sst-core.git'
       sst_core_ref: '${{ needs.check-updates.outputs.current_sha }}'
       publish_master_latest: true
@@ -129,5 +129,5 @@ jobs:
       build_platforms: ${{ inputs.build_platforms || 'linux/amd64,linux/arm64' }}
       tag_suffix: '${{ needs.build-core-containers.outputs.resolved_tag_suffix }}'
       alias_tags_json: '${{ needs.build-core-containers.outputs.alias_tags_json }}'
-      mpich_version: ${{ inputs.mpich_version || '4.0.2' }}
+      mpich_version: ${{ inputs.mpich_version || '4.3.2' }}
       sst_commit: '${{ needs.check-updates.outputs.current_sha }}'
