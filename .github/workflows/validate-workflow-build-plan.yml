@@ -42,7 +42,7 @@ jobs:
             tag_suffix: 15.1.2
             sst_version: 15.1.2
             sst_elements_version: 15.1.0
-            mpich_version: 4.0.2
+            mpich_version: 4.3.2
             enable_perf_tracking: 'true'
             sst_core_repo: ''
             sst_core_ref: ''
@@ -58,7 +58,7 @@ jobs:
             tag_suffix: ''
             sst_version: ''
             sst_elements_version: ''
-            mpich_version: 4.0.2
+            mpich_version: 4.3.2
             enable_perf_tracking: 'false'
             sst_core_repo: https://github.com/sstsimulator/sst-core.git
             sst_core_ref: main
@@ -74,7 +74,7 @@ jobs:
             tag_suffix: latest
             sst_version: ''
             sst_elements_version: ''
-            mpich_version: 4.0.2
+            mpich_version: 4.3.2
             enable_perf_tracking: 'false'
             sst_core_repo: ''
             sst_core_ref: ''
@@ -90,7 +90,7 @@ jobs:
             tag_suffix: latest
             sst_version: ''
             sst_elements_version: ''
-            mpich_version: 4.0.2
+            mpich_version: 4.3.2
             enable_perf_tracking: 'false'
             sst_core_repo: ''
             sst_core_ref: ''
