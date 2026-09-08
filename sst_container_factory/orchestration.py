@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import gzip
 import json
 import os
 import platform
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import time
 import urllib.parse
@@ -26,7 +28,7 @@ from .build_spec import (
     WorkflowBakePlan,
     WorkflowBakeTargetSpec,
 )
-from .github_actions import end_group, set_output, start_group
+from .github_actions import end_group, start_group
 from .logging_utils import log_error, log_info, log_success, log_warning
 
 
@@ -45,7 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REGISTRY = "localhost:5000"
 DEFAULT_MPICH_VERSION = "4.3.2"
 DEFAULT_BUILD_NCPUS = "4"
-DEFAULT_SST_VERSION = "15.1.2"
+DEFAULT_SST_VERSION = "16.0.0"
 DEFAULT_SST_CORE_REPO = "https://github.com/sstsimulator/sst-core.git"
 DEFAULT_SST_ELEMENTS_REPO = "https://github.com/sstsimulator/sst-elements.git"
 VALID_SST_VERSIONS = (
@@ -1508,8 +1510,26 @@ def _download_file_url(url: str, destination: Path) -> None:
         raise OrchestrationError(f"Failed to download {destination.name}: {exc}") from exc
 
 
-def _download_requested_file(url: str, destination: Path, description: str) -> None:
-    """Download one tarball if it is not already present."""
+def _is_valid_archive(path: Path) -> bool:
+    """Return whether path holds a complete, readable gzip tar archive."""
+
+    if path.stat().st_size == 0:
+        return False
+
+    try:
+        # Reading the stream to EOF is what verifies the trailing gzip CRC32 and length.
+        with gzip.open(path, "rb") as stream:
+            while stream.read(1024 * 1024):
+                pass
+        with tarfile.open(path, "r:gz") as archive:
+            archive.next()
+    except (OSError, EOFError, tarfile.TarError):
+        return False
+    return True
+
+
+def _download_requested_file(url: str, destination: Path, description: str, *, force: bool = False) -> None:
+    """Download one tarball, replacing any existing file that is forced or unusable."""
 
     log_info("")
     log_info(f"Downloading {description}...")
@@ -1517,10 +1537,23 @@ def _download_requested_file(url: str, destination: Path, description: str) -> N
     log_info(f"File: {destination.name}")
 
     if destination.is_file():
-        log_info(f"File {destination.name} already exists. Skipping download.")
-        return
+        if force:
+            log_info(f"File {destination.name} already exists. Re-downloading because --force was given.")
+        elif _is_valid_archive(destination):
+            log_info(f"File {destination.name} already exists. Skipping download.")
+            return
+        else:
+            log_warning(
+                f"File {destination.name} already exists but is not a readable archive. Re-downloading."
+            )
 
     _download_file_url(url, destination)
+    if not _is_valid_archive(destination):
+        destination.unlink(missing_ok=True)
+        raise OrchestrationError(
+            f"Downloaded {destination.name} is not a readable archive. The transfer was incomplete or "
+            f"the URL did not serve an archive: {url}"
+        )
     size_mb = destination.stat().st_size // 1024 // 1024
     log_success(f"Successfully downloaded {destination.name}")
     log_info(f"File size: {size_mb} MB")
@@ -1596,7 +1629,7 @@ def download_sources(
     requested_files: list[str] = []
     for url, filename, description in requested_downloads:
         requested_files.append(filename)
-        _download_requested_file(url, destination / filename, description)
+        _download_requested_file(url, destination / filename, description, force=force_mode)
 
     log_info("")
     log_info("==================================================")

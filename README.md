@@ -30,8 +30,8 @@ All images include build metadata visible through `docker inspect`.
 Replace `OWNER` with the GitHub repository owner.
 
 ```bash
-docker pull ghcr.io/OWNER/sst-core:15.1.2
-docker run -it ghcr.io/OWNER/sst-core:15.1.2
+docker pull ghcr.io/OWNER/sst-core:16.0.0
+docker run -it ghcr.io/OWNER/sst-core:16.0.0
 
 docker pull ghcr.io/OWNER/sst-dev:latest
 docker run -it ghcr.io/OWNER/sst-dev:latest
@@ -47,7 +47,7 @@ Local builds are host-platform only.
 
 ```bash
 ./sst_container_factory/bin/build.sh dev
-./sst_container_factory/bin/build.sh core --sst-version 15.1.2
+./sst_container_factory/bin/build.sh core --sst-version 16.0.0
 ./sst_container_factory/bin/build.sh source --core-path /path/to/sst-core --tag-suffix local-core
 ./sst_container_factory/bin/build.sh experiment --experiment-name phold-example
 ```
