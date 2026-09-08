@@ -68,7 +68,7 @@ Use the **Actions** tab, choose a workflow, then select **Run workflow**.
 
 Common workflow defaults:
 
-- `mpich_version`: `4.0.2`
+- `mpich_version`: `4.3.2`
 - `build_platforms`: `linux/amd64,linux/arm64`
 
 Release and source workflows also support `enable_perf_tracking`.

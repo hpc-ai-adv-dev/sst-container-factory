@@ -43,7 +43,7 @@ DOCKER_LIBRARY_IMAGES = {
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REGISTRY = "localhost:5000"
-DEFAULT_MPICH_VERSION = "4.0.2"
+DEFAULT_MPICH_VERSION = "4.3.2"
 DEFAULT_BUILD_NCPUS = "4"
 DEFAULT_SST_VERSION = "15.1.2"
 DEFAULT_SST_CORE_REPO = "https://github.com/sstsimulator/sst-core.git"
